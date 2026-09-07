@@ -517,6 +517,12 @@ export async function getQuotations(): Promise<Quotation[]> {
           return {
             ...localMatch,
             ...q,
+            customer_site_location: q.customer_site_location !== undefined && q.customer_site_location !== null ? q.customer_site_location : (localMatch?.customer_site_location || ''),
+            tax_rate: typeof q.tax_rate === 'number'
+              ? q.tax_rate
+              : (q.subtotal > 0 && typeof q.tax_amount === 'number'
+                  ? Math.round((q.tax_amount / q.subtotal) * 100)
+                  : (localMatch?.tax_rate ?? 18)),
             items: finalItems,
           };
         }) as Quotation[];
@@ -529,6 +535,8 @@ export async function getQuotations(): Promise<Quotation[]> {
           }
         });
 
+        // Keep local cache synced with DB data
+        setLocalItem(STORAGE_KEYS.QUOTATIONS, combined);
         return combined;
       }
     } catch (e) {
@@ -578,11 +586,23 @@ export async function getQuotationById(id: string): Promise<Quotation | null> {
             })
           : (localMatch?.items || []);
 
-        return {
+        const finalQuote: Quotation = {
           ...localMatch,
           ...quote,
+          customer_site_location: quote.customer_site_location !== undefined && quote.customer_site_location !== null ? quote.customer_site_location : (localMatch?.customer_site_location || ''),
+          tax_rate: typeof quote.tax_rate === 'number'
+            ? quote.tax_rate
+            : (quote.subtotal > 0 && typeof quote.tax_amount === 'number'
+                ? Math.round((quote.tax_amount / quote.subtotal) * 100)
+                : (localMatch?.tax_rate ?? 18)),
           items: finalItems,
-        } as Quotation;
+        };
+
+        // Synchronize local cache with latest data
+        const updatedLocal = localList.filter((lq) => lq.id !== quote.id && lq.quotation_number !== quote.quotation_number);
+        setLocalItem(STORAGE_KEYS.QUOTATIONS, [finalQuote, ...updatedLocal]);
+
+        return finalQuote;
       }
     } catch (e) {
       console.warn('Direct Supabase quote fetch error:', e);
@@ -658,20 +678,33 @@ export async function createQuotation(
         steel_price_per_meter: _spm,
         steel_price_per_kg: _sp,
         total_steel_cost: _sc,
+        tax_rate: _tr,
         ...headerOnly
       } = newQuotation;
 
-      const headerForSupabase = {
+      const headerForSupabase: Record<string, any> = {
         ...headerOnly,
         id: isValidUUID(headerOnly.id) ? headerOnly.id : undefined,
         customer_id: isValidUUID(headerOnly.customer_id) ? headerOnly.customer_id : null,
+        customer_site_location: headerOnly.customer_site_location ?? '',
       };
 
-      const { data: insertedHeader, error: headErr } = await supabase
+      let { data: insertedHeader, error: headErr } = await supabase
         .from('quotations')
         .insert(headerForSupabase)
         .select()
-        .single();
+        .maybeSingle();
+
+      if (headErr && headErr.code === 'PGRST204') {
+        const { tax_rate: _, ...retryHeader } = headerForSupabase;
+        const retry = await supabase
+          .from('quotations')
+          .insert(retryHeader)
+          .select()
+          .maybeSingle();
+        insertedHeader = retry.data;
+        headErr = retry.error;
+      }
 
       if (!headErr && insertedHeader) {
         // Use the returned Supabase ID if generated
@@ -697,7 +730,6 @@ export async function createQuotation(
 
         const { error: itemsErr } = await supabase.from('quotation_items').insert(itemsForSupabase);
         if (itemsErr) {
-          // If description column doesn't exist in Supabase table, retry without description
           console.warn('Supabase items insert with description warning, retrying without description column:', itemsErr);
           const fallbackItems = itemsForSupabase.map(({ description: _, ...rest }) => rest);
           await supabase.from('quotation_items').insert(fallbackItems);
@@ -707,8 +739,8 @@ export async function createQuotation(
         const updatedLocal = getLocalItem<Quotation[]>(STORAGE_KEYS.QUOTATIONS, []);
         setLocalItem(STORAGE_KEYS.QUOTATIONS, [newQuotation, ...updatedLocal.filter((q) => q.id !== newId && q.id !== realId)]);
         return newQuotation;
-      } else {
-        console.warn('Supabase quotation header insert warning:', headErr);
+      } else if (headErr) {
+        console.error('Supabase quotation header insert error:', headErr);
       }
     } catch (e) {
       console.warn('Supabase quote insert failed, saved locally:', e);
@@ -768,15 +800,38 @@ export async function updateQuotation(
         steel_price_per_meter: _spm,
         steel_price_per_kg: _sp,
         total_steel_cost: _sc,
+        tax_rate: _tr,
         ...headerOnly
       } = updated;
 
-      const headerForSupabase = {
+      const headerForSupabase: Record<string, any> = {
         ...headerOnly,
         customer_id: isValidUUID(headerOnly.customer_id) ? headerOnly.customer_id : null,
+        customer_site_location: headerOnly.customer_site_location ?? '',
       };
 
-      await supabase.from('quotations').update(headerForSupabase).eq('id', id);
+      let { data: updatedHeader, error: updateErr } = await supabase
+        .from('quotations')
+        .update(headerForSupabase)
+        .eq('id', id)
+        .select()
+        .maybeSingle();
+
+      if (updateErr && updateErr.code === 'PGRST204') {
+        const { tax_rate: _, ...retryHeader } = headerForSupabase;
+        const retry = await supabase
+          .from('quotations')
+          .update(retryHeader)
+          .eq('id', id)
+          .select()
+          .maybeSingle();
+        updatedHeader = retry.data;
+        updateErr = retry.error;
+      }
+
+      if (updateErr) {
+        console.error('Supabase quote update error:', updateErr);
+      }
 
       if (items) {
         await supabase.from('quotation_items').delete().eq('quotation_id', id);
@@ -803,7 +858,7 @@ export async function updateQuotation(
       }
       return updated;
     } catch (e) {
-      console.warn('Supabase quote update failed, saved locally:', e);
+      console.error('Supabase quote update exception:', e);
     }
   }
 
