@@ -12,6 +12,10 @@ import {
   ShieldCheck,
   ExternalLink,
   Sparkles,
+  CheckCircle2,
+  AlertCircle,
+  Loader2,
+  X,
 } from 'lucide-react';
 import { CompanySettings } from '@/lib/types';
 import { getCompanySettings, updateCompanySettings } from '@/lib/storage';
@@ -21,7 +25,8 @@ export default function SettingsPage() {
   const [settings, setSettings] = useState<CompanySettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [savedSuccess, setSavedSuccess] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'success' | 'error'>('idle');
+  const [statusMessage, setStatusMessage] = useState<string>('');
   const [copiedSql, setCopiedSql] = useState(false);
 
   useEffect(() => {
@@ -45,11 +50,18 @@ export default function SettingsPage() {
 
     try {
       setSaving(true);
-      await updateCompanySettings(settings);
-      setSavedSuccess(true);
-      setTimeout(() => setSavedSuccess(false), 3000);
+      setSaveStatus('idle');
+      const updated = await updateCompanySettings(settings);
+      setSettings(updated);
+      setSaveStatus('success');
+      setStatusMessage('Company settings saved successfully and synchronized with the database!');
+      setTimeout(() => {
+        setSaveStatus((prev) => (prev === 'success' ? 'idle' : prev));
+      }, 5000);
     } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : 'Failed to save settings');
+      console.error('Failed to save settings:', e);
+      setSaveStatus('error');
+      setStatusMessage(e instanceof Error ? e.message : 'Failed to save settings. Please try again.');
     } finally {
       setSaving(false);
     }
@@ -182,13 +194,59 @@ CREATE POLICY "Allow public all access on quotation_items" ON quotation_items FO
           </p>
         </div>
 
-        {savedSuccess && (
-          <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-semibold">
-            <Check className="w-4 h-4" />
+        {saveStatus === 'success' && (
+          <div className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-emerald-50 text-emerald-800 border border-emerald-300 text-xs font-bold shadow-xs animate-in fade-in slide-in-from-top-2">
+            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
             <span>Settings saved successfully!</span>
           </div>
         )}
+
+        {saveStatus === 'error' && (
+          <div className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-rose-50 text-rose-800 border border-rose-300 text-xs font-bold shadow-xs animate-in fade-in slide-in-from-top-2">
+            <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+            <span>Save failed</span>
+          </div>
+        )}
       </div>
+
+      {/* Global Status Banner Alert */}
+      {saveStatus === 'success' && (
+        <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 flex items-start justify-between gap-3 shadow-xs">
+          <div className="flex items-start gap-3">
+            <CheckCircle2 className="w-5 h-5 text-emerald-600 mt-0.5 shrink-0" />
+            <div>
+              <h4 className="font-bold text-sm">Settings Saved & Synchronized</h4>
+              <p className="text-xs text-emerald-700 mt-0.5">{statusMessage}</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setSaveStatus('idle')}
+            className="text-emerald-600 hover:text-emerald-800 p-1"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
+      {saveStatus === 'error' && (
+        <div className="p-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-900 flex items-start justify-between gap-3 shadow-xs">
+          <div className="flex items-start gap-3">
+            <AlertCircle className="w-5 h-5 text-rose-600 mt-0.5 shrink-0" />
+            <div>
+              <h4 className="font-bold text-sm">Error Saving Settings</h4>
+              <p className="text-xs text-rose-700 mt-0.5">{statusMessage}</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setSaveStatus('idle')}
+            className="text-rose-600 hover:text-rose-800 p-1"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
 
       {/* Settings Form */}
       <form onSubmit={handleSave} className="space-y-6">
@@ -399,15 +457,39 @@ CREATE POLICY "Allow public all access on quotation_items" ON quotation_items FO
           </div>
         </div>
 
-        {/* Save Button */}
-        <div className="flex justify-end">
+        {/* Save Button & Feedback */}
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2">
+          <div>
+            {saveStatus === 'success' && (
+              <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-700 bg-emerald-50 px-3 py-1.5 rounded-lg border border-emerald-200">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                <span>All changes saved successfully!</span>
+              </span>
+            )}
+            {saveStatus === 'error' && (
+              <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-rose-700 bg-rose-50 px-3 py-1.5 rounded-lg border border-rose-200">
+                <AlertCircle className="w-4 h-4 text-rose-600" />
+                <span>Failed to save. Check your connection.</span>
+              </span>
+            )}
+          </div>
+
           <button
             type="submit"
             disabled={saving}
-            className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-sm shadow-md shadow-slate-900/20 transition-all transform hover:-translate-y-0.5 disabled:opacity-50"
+            className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-7 py-3 rounded-xl bg-slate-900 hover:bg-slate-800 active:bg-slate-950 text-white font-bold text-sm shadow-md shadow-slate-900/20 transition-all transform hover:-translate-y-0.5 disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
           >
-            <Save className="w-4 h-4" />
-            <span>{saving ? 'Saving...' : 'Save Settings'}</span>
+            {saving ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin text-sky-400" />
+                <span>Saving to Database...</span>
+              </>
+            ) : (
+              <>
+                <Save className="w-4 h-4" />
+                <span>Save Settings</span>
+              </>
+            )}
           </button>
         </div>
       </form>

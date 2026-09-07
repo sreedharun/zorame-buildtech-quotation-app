@@ -97,61 +97,177 @@ export function ensureInitializedStorage(): void {
   }
 }
 
+function isValidUUID(str?: string | null): boolean {
+  if (!str) return false;
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
+}
+
 // ============================================================================
 // COMPANY SETTINGS API
 // ============================================================================
 export async function getCompanySettings(): Promise<CompanySettings> {
+  ensureInitializedStorage();
+  const localDefault = getLocalItem<CompanySettings>(STORAGE_KEYS.SETTINGS, DEFAULT_COMPANY_SETTINGS);
+
   if (isSupabaseConfigured && supabase) {
     try {
       const { data, error } = await supabase
         .from('company_settings')
         .select('*')
         .limit(1)
-        .single();
+        .maybeSingle();
+
       if (!error && data) {
+        const merged: CompanySettings = {
+          ...DEFAULT_COMPANY_SETTINGS,
+          ...localDefault,
+          ...data,
+          id: data.id || localDefault.id || DEFAULT_COMPANY_SETTINGS.id,
+        };
+
         if (
-          data.company_name === 'Sun Fiber Sheet Agencies' ||
-          data.company_name === 'Apex Roofing & Steel Solutions'
+          merged.company_name === 'Sun Fiber Sheet Agencies' ||
+          merged.company_name === 'Apex Roofing & Steel Solutions'
         ) {
-          const updated = {
-            ...data,
-            company_name: 'Zorame Buildtech',
-            tagline: DEFAULT_COMPANY_SETTINGS.tagline,
-            email: data.email === 'sunfibersheets.trichy@gmail.com' ? 'zoramebuildtech@gmail.com' : data.email,
-            quote_prefix: data.quote_prefix === 'SFSA-' ? 'ZB-' : data.quote_prefix,
-            bank_details: DEFAULT_COMPANY_SETTINGS.bank_details,
-          };
-          await supabase.from('company_settings').upsert(updated);
-          return updated as CompanySettings;
+          merged.company_name = 'Zorame Buildtech';
+          merged.tagline = DEFAULT_COMPANY_SETTINGS.tagline;
+          merged.email = merged.email === 'sunfibersheets.trichy@gmail.com' ? 'zoramebuildtech@gmail.com' : merged.email;
+          merged.quote_prefix = merged.quote_prefix === 'SFSA-' ? 'ZB-' : merged.quote_prefix;
+          merged.bank_details = DEFAULT_COMPANY_SETTINGS.bank_details;
         }
-        return data as CompanySettings;
+
+        setLocalItem(STORAGE_KEYS.SETTINGS, merged);
+        return merged;
+      }
+
+      // If no row exists in Supabase table (empty table), seed initial row
+      if (!data && !error) {
+        const initialRow: Record<string, any> = {
+          company_name: localDefault.company_name || DEFAULT_COMPANY_SETTINGS.company_name,
+          tagline: localDefault.tagline || DEFAULT_COMPANY_SETTINGS.tagline,
+          phone: localDefault.phone || DEFAULT_COMPANY_SETTINGS.phone,
+          email: localDefault.email || DEFAULT_COMPANY_SETTINGS.email,
+          address: localDefault.address || DEFAULT_COMPANY_SETTINGS.address,
+          gst_tax_id: localDefault.gst_tax_id || DEFAULT_COMPANY_SETTINGS.gst_tax_id,
+          logo_url: localDefault.logo_url || DEFAULT_COMPANY_SETTINGS.logo_url,
+          quote_prefix: localDefault.quote_prefix || DEFAULT_COMPANY_SETTINGS.quote_prefix,
+          default_validity_days: localDefault.default_validity_days || DEFAULT_COMPANY_SETTINGS.default_validity_days,
+          default_terms: localDefault.default_terms || DEFAULT_COMPANY_SETTINGS.default_terms,
+          bank_details: localDefault.bank_details || DEFAULT_COMPANY_SETTINGS.bank_details,
+          updated_at: new Date().toISOString(),
+        };
+
+        const { data: insertedData } = await supabase
+          .from('company_settings')
+          .insert(initialRow)
+          .select()
+          .maybeSingle();
+
+        if (insertedData) {
+          const merged: CompanySettings = {
+            ...DEFAULT_COMPANY_SETTINGS,
+            ...localDefault,
+            ...insertedData,
+          };
+          setLocalItem(STORAGE_KEYS.SETTINGS, merged);
+          return merged;
+        }
       }
     } catch (e) {
-      console.warn('Supabase settings fetch failed, using fallback:', e);
+      console.warn('Supabase settings fetch failed, using local fallback:', e);
     }
   }
-  ensureInitializedStorage();
-  return getLocalItem<CompanySettings>(STORAGE_KEYS.SETTINGS, DEFAULT_COMPANY_SETTINGS);
+
+  return localDefault;
 }
 
 export async function updateCompanySettings(settings: Partial<CompanySettings>): Promise<CompanySettings> {
   const current = await getCompanySettings();
-  const updated: CompanySettings = { ...current, ...settings, updated_at: new Date().toISOString() };
+  const updated: CompanySettings = {
+    ...current,
+    ...settings,
+    updated_at: new Date().toISOString(),
+  };
 
+  // 1. Immediately cache locally
+  ensureInitializedStorage();
+  setLocalItem(STORAGE_KEYS.SETTINGS, updated);
+
+  // 2. Persist to Supabase with upsert & schema compatibility
   if (isSupabaseConfigured && supabase) {
+    let existingId = updated.id;
+    if (!isValidUUID(existingId)) {
+      try {
+        const { data: firstRow } = await supabase
+          .from('company_settings')
+          .select('id')
+          .limit(1)
+          .maybeSingle();
+        if (firstRow?.id) {
+          existingId = firstRow.id;
+          updated.id = firstRow.id;
+        }
+      } catch (e) {
+        console.warn('Could not query existing company_settings row id:', e);
+      }
+    }
+
+    const payload: Record<string, any> = {
+      ...(isValidUUID(existingId) ? { id: existingId } : {}),
+      company_name: updated.company_name,
+      tagline: updated.tagline ?? null,
+      phone: updated.phone ?? null,
+      email: updated.email ?? null,
+      address: updated.address ?? null,
+      gst_tax_id: updated.gst_tax_id ?? null,
+      logo_url: updated.logo_url ?? null,
+      quote_prefix: updated.quote_prefix || 'ZB-',
+      default_validity_days: updated.default_validity_days || 15,
+      default_terms: updated.default_terms ?? null,
+      bank_details: updated.bank_details ?? null,
+      default_steel_price_per_kg: updated.default_steel_price_per_kg ?? 78,
+      updated_at: new Date().toISOString(),
+    };
+
     try {
-      const { data, error } = await supabase
+      let { data, error } = await supabase
         .from('company_settings')
-        .upsert(updated)
+        .upsert(payload)
         .select()
-        .single();
-      if (!error && data) return data as CompanySettings;
+        .maybeSingle();
+
+      // If column default_steel_price_per_kg doesn't exist in Supabase table schema (PGRST204), retry without it
+      if (error && error.code === 'PGRST204') {
+        const { default_steel_price_per_kg: _, ...payloadWithoutSteelPrice } = payload;
+        const retry = await supabase
+          .from('company_settings')
+          .upsert(payloadWithoutSteelPrice)
+          .select()
+          .maybeSingle();
+        data = retry.data;
+        error = retry.error;
+      }
+
+      if (error) {
+        console.error('Supabase company_settings upsert error:', error);
+        throw new Error(error.message || 'Failed to save settings to cloud database');
+      }
+
+      if (data) {
+        const finalMerged: CompanySettings = {
+          ...updated,
+          ...data,
+          default_steel_price_per_kg: updated.default_steel_price_per_kg,
+        };
+        setLocalItem(STORAGE_KEYS.SETTINGS, finalMerged);
+        return finalMerged;
+      }
     } catch (e) {
-      console.warn('Supabase settings update failed, saving locally:', e);
+      console.error('Supabase settings update error:', e);
+      throw e;
     }
   }
 
-  setLocalItem(STORAGE_KEYS.SETTINGS, updated);
   return updated;
 }
 
@@ -351,11 +467,6 @@ export async function deleteCustomer(id: string): Promise<boolean> {
   }
 
   return true;
-}
-
-function isValidUUID(str?: string | null): boolean {
-  if (!str) return false;
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
 }
 
 // ============================================================================
