@@ -96,6 +96,9 @@ export function QuotationForm({
   // Steel Group Pricing (Single Price per Kg for entire steel schedule)
   const [steelPricePerKg, setSteelPricePerKg] = useState<number>(78);
 
+  // Global Quotation GST Rate %
+  const [gstRate, setGstRate] = useState<number>(18);
+
   // Discount & Totals
   const [discountType, setDiscountType] = useState<DiscountType>('flat');
   const [discountValue, setDiscountValue] = useState<number>(0);
@@ -132,6 +135,7 @@ export function QuotationForm({
           setCustomerSiteLocation(initialQuotation.customer_site_location || '');
           setDiscountType(initialQuotation.discount_type || 'flat');
           setDiscountValue(initialQuotation.discount_value || 0);
+          setGstRate(typeof initialQuotation.tax_rate === 'number' ? initialQuotation.tax_rate : 18);
           setTerms(initialQuotation.terms_and_conditions || sData.default_terms);
           setNotes(initialQuotation.notes || '');
           if (typeof initialQuotation.steel_price_per_kg === 'number') {
@@ -419,7 +423,7 @@ export function QuotationForm({
     discountType,
     discountValue,
     steelPricePerKg,
-    18
+    gstRate
   );
   const totalWeightKg = calculateQuotationTotalWeight(items);
   const hasSteelRows = items.some((i) => i.item_type === 'steel');
@@ -448,6 +452,7 @@ export function QuotationForm({
         valid_until: validUntil,
         status: status,
         subtotal: totals.subtotal,
+        tax_rate: gstRate,
         tax_amount: totals.taxAmount,
         discount_type: discountType,
         discount_value: discountValue,
@@ -737,7 +742,6 @@ export function QuotationForm({
                 <th className="py-3 px-3 w-28 text-right">Length / Unit</th>
                 <th className="py-3 px-3 w-24 text-right">Qty</th>
                 <th className="py-3 px-3 w-36 text-right">Price / Weight</th>
-                <th className="py-3 px-3 w-20 text-right">Tax Rate</th>
                 <th className="py-3 px-3 w-32 text-right">Line Total (₹)</th>
                 <th className="py-3 px-3 w-10 text-center"></th>
               </tr>
@@ -923,15 +927,10 @@ export function QuotationForm({
                         </div>
                       </td>
 
-                      {/* Tax Rate (Group 18%) */}
-                      <td className="py-3 px-3 text-right align-top pt-4">
-                        <span className="text-slate-600 font-mono text-xs font-semibold">18%</span>
-                      </td>
-
-                      {/* Line Total (Steel rows are priced via Steel Price/m below) */}
+                      {/* Line Total (Steel rows are priced via Steel Price/kg in Summary) */}
                       <td className="py-3 px-3 text-right align-top pt-4">
                         <span className="text-[11px] font-semibold text-amber-800 italic">
-                          Priced / meter
+                          Priced in Summary
                         </span>
                       </td>
 
@@ -1018,30 +1017,10 @@ export function QuotationForm({
                       />
                     </td>
 
-                    {/* Tax Rate */}
-                    <td className="py-3 px-3">
-                      <select
-                        value={item.tax_rate}
-                        onChange={(e) =>
-                          handleUpdateItem(idx, 'tax_rate', parseFloat(e.target.value) || 0)
-                        }
-                        className="w-full px-2 py-1.5 text-right border border-slate-200 rounded-lg text-xs bg-white focus:ring-1 focus:ring-sky-500 outline-none"
-                      >
-                        <option value="0">0%</option>
-                        <option value="5">5%</option>
-                        <option value="12">12%</option>
-                        <option value="18">18%</option>
-                        <option value="28">28%</option>
-                      </select>
-                    </td>
-
                     {/* Line Total */}
                     <td className="py-3 px-3 text-right">
                       <div className="font-mono font-bold text-slate-900 text-sm">
                         {formatCurrency(item.line_total)}
-                      </div>
-                      <div className="text-[10px] text-slate-400">
-                        Tax: ₹{item.line_tax.toFixed(2)}
                       </div>
                     </td>
 
@@ -1240,11 +1219,34 @@ export function QuotationForm({
               </span>
             </div>
 
-            <div className="flex justify-between text-slate-600">
-              <span>Total GST / Tax:</span>
-              <span className="font-mono font-semibold text-slate-900">
-                + {formatCurrency(totals.taxAmount)}
-              </span>
+            {/* Single GST % Selector */}
+            <div className="pt-2 border-t border-slate-100 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="font-medium text-slate-700 text-xs">GST / Tax Rate:</span>
+                <div className="flex items-center gap-1 bg-slate-100 p-0.5 rounded-lg">
+                  {[0, 5, 12, 18, 28].map((rate) => (
+                    <button
+                      key={rate}
+                      type="button"
+                      onClick={() => setGstRate(rate)}
+                      className={`px-2 py-0.5 rounded-md text-xs font-semibold transition-all cursor-pointer ${
+                        gstRate === rate
+                          ? 'bg-sky-600 text-white shadow-2xs'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      {rate}%
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex justify-between text-slate-600">
+                <span>GST Amount ({gstRate}% on Subtotal):</span>
+                <span className="font-mono font-semibold text-slate-900">
+                  + {formatCurrency(totals.taxAmount)}
+                </span>
+              </div>
             </div>
 
             {/* Discount Control */}
@@ -1255,7 +1257,7 @@ export function QuotationForm({
                   <button
                     type="button"
                     onClick={() => setDiscountType('flat')}
-                    className={`px-2 py-0.5 rounded-md text-xs font-semibold transition-all ${
+                    className={`px-2 py-0.5 rounded-md text-xs font-semibold transition-all cursor-pointer ${
                       discountType === 'flat'
                         ? 'bg-white text-slate-900 shadow-2xs'
                         : 'text-slate-500 hover:text-slate-900'
@@ -1266,7 +1268,7 @@ export function QuotationForm({
                   <button
                     type="button"
                     onClick={() => setDiscountType('percent')}
-                    className={`px-2 py-0.5 rounded-md text-xs font-semibold transition-all ${
+                    className={`px-2 py-0.5 rounded-md text-xs font-semibold transition-all cursor-pointer ${
                       discountType === 'percent'
                         ? 'bg-white text-slate-900 shadow-2xs'
                         : 'text-slate-500 hover:text-slate-900'

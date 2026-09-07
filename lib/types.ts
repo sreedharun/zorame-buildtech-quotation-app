@@ -85,6 +85,7 @@ export interface Quotation {
   valid_until: string;
   status: QuotationStatus;
   subtotal: number;
+  tax_rate?: number; // Overall quotation GST rate % (e.g. 18 for 18%)
   tax_amount: number;
   discount_type: DiscountType;
   discount_value: number;

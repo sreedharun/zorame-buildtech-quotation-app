@@ -110,11 +110,12 @@ export function numberToWords(amount: number): string {
 export function calculateLineItem(
   unitPrice: number,
   quantity: number,
-  taxRate: number
+  taxRate: number = 0
 ) {
   const lineSubtotal = Number(((unitPrice || 0) * (quantity || 0)).toFixed(2));
   const lineTax = Number(((lineSubtotal * (taxRate || 0)) / 100).toFixed(2));
-  const lineTotal = Number((lineSubtotal + lineTax).toFixed(2));
+  // Line total without per-row tax:
+  const lineTotal = lineSubtotal;
 
   return {
     line_subtotal: lineSubtotal,
@@ -166,38 +167,37 @@ export function calculateQuotationTotals(
     item_type?: string;
     unit_price: number;
     quantity: number;
-    tax_rate: number;
+    tax_rate?: number;
     length_meters?: number;
     weight_kg?: number;
   }>,
   discountType: 'flat' | 'percent',
   discountValue: number,
   steelPricePerKg: number = 0,
-  steelTaxRate: number = 18
+  gstRate: number = 18
 ) {
   let subtotal = 0;
-  let taxAmount = 0;
 
-  // 1. Regular items
-  items.forEach((item) => {
+  // 1. Regular items subtotal (sum of unit_price * quantity)
+  (items || []).forEach((item) => {
     if (item.item_type !== 'steel') {
-      const calculated = calculateLineItem(item.unit_price, item.quantity, item.tax_rate);
-      subtotal += calculated.line_subtotal;
-      taxAmount += calculated.line_tax;
+      const lineSubtotal = Number(((item.unit_price || 0) * (item.quantity || 0)).toFixed(2));
+      subtotal += lineSubtotal;
     }
   });
 
-  // 2. Steel items (weight-based pricing)
+  // 2. Steel items (weight-based pricing included in Subtotal)
   const steelTotals = calculateSteelTotals(items, steelPricePerKg);
   if (steelTotals.totalSteelCost > 0) {
     subtotal += steelTotals.totalSteelCost;
-    const steelTax = Number(((steelTotals.totalSteelCost * (steelTaxRate || 0)) / 100).toFixed(2));
-    taxAmount += steelTax;
   }
 
   subtotal = Number(subtotal.toFixed(2));
-  taxAmount = Number(taxAmount.toFixed(2));
 
+  // 3. Single GST % applied to the entire Subtotal
+  const taxAmount = Number(((subtotal * (gstRate || 0)) / 100).toFixed(2));
+
+  // 4. Discount calculation
   let discountAmount = 0;
   if (discountType === 'percent') {
     discountAmount = Number(((subtotal * (discountValue || 0)) / 100).toFixed(2));
@@ -205,15 +205,16 @@ export function calculateQuotationTotals(
     discountAmount = Number((discountValue || 0).toFixed(2));
   }
 
-  if (discountAmount > subtotal) {
-    discountAmount = subtotal;
+  if (discountAmount > (subtotal + taxAmount)) {
+    discountAmount = subtotal + taxAmount;
   }
 
-  // Grand Total = (Subtotal - Discount) + Tax Amount
-  const grandTotal = Number((subtotal - discountAmount + taxAmount).toFixed(2));
+  // Grand Total = Subtotal + (Subtotal × selected GST%) − Discount
+  const grandTotal = Number(Math.max(0, subtotal + taxAmount - discountAmount).toFixed(2));
 
   return {
     subtotal,
+    gstRate,
     taxAmount,
     discountAmount,
     grandTotal,

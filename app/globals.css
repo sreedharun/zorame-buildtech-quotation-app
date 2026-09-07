@@ -45,6 +45,8 @@ body {
     color: #000000 !important;
     padding: 0 !important;
     margin: 0 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
   }
 
   .no-print {
@@ -64,8 +66,13 @@ body {
     margin: 0 !important;
   }
 
+  tr, .quotation-print-container > div {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
   @page {
-    size: A4;
-    margin: 12mm 15mm 15mm 15mm;
+    size: A4 portrait;
+    margin: 8mm 12mm 10mm 12mm;
   }
 }
