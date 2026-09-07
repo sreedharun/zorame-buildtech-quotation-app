@@ -382,8 +382,27 @@ export async function getQuotations(): Promise<Quotation[]> {
         const supabaseQuotes = quotes.map((q) => {
           const dbItems = items ? items.filter((item) => item.quotation_id === q.id) : [];
           const localMatch = localList.find((lq) => lq.id === q.id || lq.quotation_number === q.quotation_number);
-          // If DB returned items, use them; if empty, preserve local items cache!
-          const finalItems = dbItems.length > 0 ? dbItems : (localMatch?.items || []);
+          
+          // Merge db items with local match items to ensure description & steel specs are never lost
+          const finalItems = dbItems.length > 0
+            ? dbItems.map((dbItem, idx) => {
+                const localItem = localMatch?.items?.[idx] || localMatch?.items?.find((li) => li.product_name === dbItem.product_name);
+                return {
+                  ...localItem,
+                  ...dbItem,
+                  description: dbItem.description || localItem?.description || '',
+                  item_type: localItem?.item_type || dbItem.item_type || 'product',
+                  length_meters: dbItem.length_meters || localItem?.length_meters,
+                  steel_profile_type: dbItem.steel_profile_type || localItem?.steel_profile_type,
+                  steel_size: dbItem.steel_size || localItem?.steel_size,
+                  steel_thickness: dbItem.steel_thickness || localItem?.steel_thickness,
+                  weight_per_meter: dbItem.weight_per_meter || localItem?.weight_per_meter,
+                  weight_kg: dbItem.weight_kg || localItem?.weight_kg,
+                  unit_weight_kg: dbItem.unit_weight_kg || localItem?.unit_weight_kg,
+                };
+              })
+            : (localMatch?.items || []);
+
           return {
             ...localMatch,
             ...q,
@@ -429,7 +448,25 @@ export async function getQuotationById(id: string): Promise<Quotation | null> {
           .eq('quotation_id', id)
           .order('sort_order', { ascending: true });
 
-        const finalItems = (items && items.length > 0) ? items : (localMatch?.items || []);
+        const finalItems = (items && items.length > 0)
+          ? items.map((dbItem, idx) => {
+              const localItem = localMatch?.items?.[idx] || localMatch?.items?.find((li) => li.product_name === dbItem.product_name);
+              return {
+                ...localItem,
+                ...dbItem,
+                description: dbItem.description || localItem?.description || '',
+                item_type: localItem?.item_type || dbItem.item_type || 'product',
+                length_meters: dbItem.length_meters || localItem?.length_meters,
+                steel_profile_type: dbItem.steel_profile_type || localItem?.steel_profile_type,
+                steel_size: dbItem.steel_size || localItem?.steel_size,
+                steel_thickness: dbItem.steel_thickness || localItem?.steel_thickness,
+                weight_per_meter: dbItem.weight_per_meter || localItem?.weight_per_meter,
+                weight_kg: dbItem.weight_kg || localItem?.weight_kg,
+                unit_weight_kg: dbItem.unit_weight_kg || localItem?.unit_weight_kg,
+              };
+            })
+          : (localMatch?.items || []);
+
         return {
           ...localMatch,
           ...quote,
@@ -535,6 +572,7 @@ export async function createQuotation(
           quotation_id: realId,
           product_id: isValidUUID(item.product_id) ? item.product_id : null,
           product_name: item.product_name,
+          description: item.description || null,
           category: item.category || 'Roofing Sheet',
           unit: item.unit || 'pcs',
           unit_price: Number(item.unit_price) || 0,
@@ -547,14 +585,17 @@ export async function createQuotation(
         }));
 
         const { error: itemsErr } = await supabase.from('quotation_items').insert(itemsForSupabase);
-        if (!itemsErr) {
-          // Update local cache with the confirmed Supabase ID and formatted items
-          const updatedLocal = getLocalItem<Quotation[]>(STORAGE_KEYS.QUOTATIONS, []);
-          setLocalItem(STORAGE_KEYS.QUOTATIONS, [newQuotation, ...updatedLocal.filter((q) => q.id !== newId && q.id !== realId)]);
-          return newQuotation;
-        } else {
-          console.warn('Supabase items insert warning:', itemsErr);
+        if (itemsErr) {
+          // If description column doesn't exist in Supabase table, retry without description
+          console.warn('Supabase items insert with description warning, retrying without description column:', itemsErr);
+          const fallbackItems = itemsForSupabase.map(({ description: _, ...rest }) => rest);
+          await supabase.from('quotation_items').insert(fallbackItems);
         }
+        
+        // Update local cache with confirmed items
+        const updatedLocal = getLocalItem<Quotation[]>(STORAGE_KEYS.QUOTATIONS, []);
+        setLocalItem(STORAGE_KEYS.QUOTATIONS, [newQuotation, ...updatedLocal.filter((q) => q.id !== newId && q.id !== realId)]);
+        return newQuotation;
       } else {
         console.warn('Supabase quotation header insert warning:', headErr);
       }
@@ -632,6 +673,7 @@ export async function updateQuotation(
           quotation_id: id,
           product_id: isValidUUID(item.product_id) ? item.product_id : null,
           product_name: item.product_name,
+          description: item.description || null,
           category: item.category || 'Roofing Sheet',
           unit: item.unit || 'pcs',
           unit_price: Number(item.unit_price) || 0,
@@ -642,7 +684,11 @@ export async function updateQuotation(
           line_total: Number(item.line_total) || 0,
           sort_order: idx + 1,
         }));
-        await supabase.from('quotation_items').insert(itemsForSupabase);
+        const { error: insErr } = await supabase.from('quotation_items').insert(itemsForSupabase);
+        if (insErr) {
+          const fallbackItems = itemsForSupabase.map(({ description: _, ...rest }) => rest);
+          await supabase.from('quotation_items').insert(fallbackItems);
+        }
       }
       return updated;
     } catch (e) {

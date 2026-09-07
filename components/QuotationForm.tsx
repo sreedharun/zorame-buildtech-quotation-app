@@ -846,6 +846,15 @@ export function QuotationForm({
                             {item.weight_per_meter || 0} kg/m
                           </span>
                         </div>
+
+                        {/* Optional Custom Description for Steel Item */}
+                        <input
+                          type="text"
+                          placeholder="Description / Custom steel notes (e.g. Main columns, Rafters, Primer coated)..."
+                          value={item.description || ''}
+                          onChange={(e) => handleUpdateItem(idx, 'description', e.target.value)}
+                          className="w-full px-2.5 py-1 border border-amber-300/80 rounded-lg text-xs focus:ring-1 focus:ring-amber-500 outline-none font-medium bg-white"
+                        />
                       </td>
 
                       {/* Unit (pcs) */}

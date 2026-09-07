@@ -130,6 +130,7 @@ CREATE TABLE IF NOT EXISTS quotation_items (
     quotation_id UUID NOT NULL REFERENCES quotations(id) ON DELETE CASCADE,
     product_id UUID REFERENCES products(id) ON DELETE SET NULL,
     product_name TEXT NOT NULL,
+    description TEXT,
     category TEXT,
     unit TEXT NOT NULL,
     unit_price NUMERIC(12,2) NOT NULL DEFAULT 0.00,
@@ -140,6 +141,9 @@ CREATE TABLE IF NOT EXISTS quotation_items (
     line_total NUMERIC(12,2) NOT NULL DEFAULT 0.00,
     sort_order INTEGER NOT NULL DEFAULT 0
 );
+
+-- Migration check for existing databases:
+ALTER TABLE quotation_items ADD COLUMN IF NOT EXISTS description TEXT;
 
 CREATE INDEX IF NOT EXISTS idx_quotation_items_quotation_id ON quotation_items(quotation_id);
 

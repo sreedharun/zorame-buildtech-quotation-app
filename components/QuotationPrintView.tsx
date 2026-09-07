@@ -145,7 +145,12 @@ export const QuotationPrintView = React.forwardRef<HTMLDivElement, QuotationPrin
                       <td className="py-3 px-3 text-center text-slate-500 font-mono">{idx + 1}</td>
                       <td className="py-3 px-3">
                         <div className="font-bold text-slate-900">{item.product_name}</div>
-                        <div className="flex items-center gap-2 mt-0.5">
+                        {item.description && (
+                          <div className="text-[11px] text-slate-700 mt-1 whitespace-pre-wrap font-medium bg-amber-100/60 p-1.5 rounded border border-amber-200/70">
+                            {item.description}
+                          </div>
+                        )}
+                        <div className="flex items-center gap-2 mt-1">
                           <span className="text-[9px] uppercase font-black tracking-wider bg-amber-200/80 text-amber-900 px-1.5 py-0.5 rounded">
                             Structural Steel
                           </span>
@@ -175,12 +180,12 @@ export const QuotationPrintView = React.forwardRef<HTMLDivElement, QuotationPrin
                     <td className="py-3 px-3">
                       <div className="font-semibold text-slate-900">{item.product_name}</div>
                       {item.description && (
-                        <div className="text-[11px] text-slate-600 mt-0.5 whitespace-pre-wrap">
+                        <div className="text-[11px] text-slate-700 mt-1 whitespace-pre-wrap font-medium bg-slate-100/80 p-1.5 rounded border border-slate-200">
                           {item.description}
                         </div>
                       )}
                       {item.category && (
-                        <span className="inline-block text-[10px] uppercase font-bold tracking-wider text-slate-400 mt-0.5">
+                        <span className="inline-block text-[10px] uppercase font-bold tracking-wider text-slate-400 mt-1">
                           {item.category}
                         </span>
                       )}
@@ -219,6 +224,18 @@ export const QuotationPrintView = React.forwardRef<HTMLDivElement, QuotationPrin
                 {numberToWords(quotation.grand_total)}
               </p>
             </div>
+
+            {/* Notes / Special Instructions */}
+            {quotation.notes && (
+              <div className="text-xs text-slate-600 p-2.5 rounded-lg bg-amber-50/50 border border-amber-200/70">
+                <span className="font-bold text-amber-900 block text-[11px] uppercase tracking-wider mb-0.5">
+                  Quotation Notes / Description:
+                </span>
+                <p className="text-[11px] leading-relaxed text-slate-700 whitespace-pre-wrap font-medium">
+                  {quotation.notes}
+                </p>
+              </div>
+            )}
 
             {settings.bank_details && (
               <div className="text-xs text-slate-600 p-2.5 rounded-lg bg-sky-50/50 border border-sky-100">
