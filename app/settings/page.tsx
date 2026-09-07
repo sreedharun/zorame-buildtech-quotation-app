@@ -447,12 +447,12 @@ CREATE POLICY "Allow public all access on quotation_items" ON quotation_items FO
             <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">
               Bank Details / NEFT / RTGS (Printed on Quotation)
             </label>
-            <input
-              type="text"
+            <textarea
+              rows={4}
               value={settings.bank_details || ''}
               onChange={(e) => setSettings({ ...settings, bank_details: e.target.value })}
-              placeholder="Bank: HDFC Bank Ltd | A/C No: 50200012345678 | IFSC: HDFC0001234"
-              className="w-full px-3.5 py-2 border border-slate-300 rounded-xl text-xs sm:text-sm font-mono focus:ring-2 focus:ring-indigo-500 outline-none"
+              placeholder={`Bank Name: HDFC Bank Ltd\nAccount Name: Zorame Buildtech\nAccount No: 50200012345678\nIFSC Code: HDFC0001234\nBranch: Trichy Main`}
+              className="w-full px-3.5 py-2 border border-slate-300 rounded-xl text-xs sm:text-sm font-mono focus:ring-2 focus:ring-indigo-500 outline-none leading-relaxed"
             />
           </div>
         </div>

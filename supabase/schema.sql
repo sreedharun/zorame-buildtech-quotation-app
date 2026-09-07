@@ -33,8 +33,11 @@ CREATE TABLE IF NOT EXISTS company_settings (
 2. Delivery within city limits and nearby districts within 2-4 working days upon order confirmation.
 3. Loading and transport freight charges extra at actuals unless explicitly quoted.
 4. Material cutting and custom profile orders cannot be cancelled once processing has commenced.
-5. Quotation is valid for the specified period due to raw material and steel market price movements.',
-    bank_details TEXT DEFAULT 'Bank: State Bank of India | A/C: Zorame Buildtech | A/C No: 38901234567 | IFSC: SBIN0001234 | Branch: Trichy Main',
+    bank_details TEXT DEFAULT 'Bank Name: State Bank of India
+Account Name: Zorame Buildtech
+Account No: 38901234567
+IFSC Code: SBIN0001234
+Branch: Trichy Main',
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

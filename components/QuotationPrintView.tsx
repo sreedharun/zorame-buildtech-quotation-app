@@ -234,7 +234,7 @@ export const QuotationPrintView = React.forwardRef<HTMLDivElement, QuotationPrin
                 <span className="font-bold text-slate-800 block text-[10px] uppercase tracking-wider mb-0.5">
                   Payment Bank Information:
                 </span>
-                <p className="font-mono text-[10.5px] leading-snug text-slate-700">
+                <p className="font-mono text-[10.5px] leading-snug text-slate-700 whitespace-pre-line">
                   {settings.bank_details}
                 </p>
               </div>
