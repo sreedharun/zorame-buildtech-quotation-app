@@ -194,6 +194,46 @@ export function QuotationForm({
     init();
   }, [initialQuotation, preselectedCustomerId]);
 
+  // Keep customer and product lookups synchronized when switching tabs
+  useEffect(() => {
+    let lastFocus = Date.now();
+    const refreshLookups = async () => {
+      try {
+        const [pData, cData] = await Promise.all([getProducts(), getCustomers()]);
+        setProducts(pData);
+        setCustomers(cData);
+      } catch (err) {
+        // silent background sync
+      }
+    };
+
+    const handleFocus = () => {
+      const now = Date.now();
+      if (now - lastFocus > 2000) {
+        lastFocus = now;
+        refreshLookups();
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        const now = Date.now();
+        if (now - lastFocus > 2000) {
+          lastFocus = now;
+          refreshLookups();
+        }
+      }
+    };
+
+    window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, []);
+
   // Handle Customer Selection Change from Combobox
   const handleSelectCustomer = (customer: Customer | null) => {
     if (customer) {

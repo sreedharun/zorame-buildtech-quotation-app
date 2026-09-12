@@ -19,6 +19,8 @@ import { Customer } from '@/lib/types';
 import { getCustomers, createCustomer, updateCustomer, deleteCustomer } from '@/lib/storage';
 import { CustomerModal } from '@/components/CustomerModal';
 import { ConfirmModal } from '@/components/ConfirmModal';
+import { RefreshButton } from '@/components/RefreshButton';
+import { useAutoSync } from '@/lib/useAutoSync';
 
 export default function CustomersPage() {
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -33,21 +35,26 @@ export default function CustomersPage() {
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
-  const loadCustomers = async () => {
+  const loadCustomers = async (silent = false) => {
     try {
-      setLoading(true);
+      if (!silent) setLoading(true);
       const data = await getCustomers();
       setCustomers(data);
     } catch (e) {
       console.error('Error fetching customers:', e);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
   useEffect(() => {
-    loadCustomers();
+    loadCustomers(false);
   }, []);
+
+  const { isRefreshing, triggerRefresh } = useAutoSync(
+    (silent) => loadCustomers(silent),
+    { intervalMs: 30000, enableFocus: true, enableInterval: true }
+  );
 
   const filteredCustomers = useMemo(() => {
     return customers.filter((c) => {
@@ -99,16 +106,20 @@ export default function CustomersPage() {
           </p>
         </div>
 
-        <button
-          onClick={() => {
-            setEditingCustomer(null);
-            setIsModalOpen(true);
-          }}
-          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold shadow-md shadow-indigo-600/20 transition-all transform hover:-translate-y-0.5"
-        >
-          <Plus className="w-4 h-4" />
-          <span>Add Customer</span>
-        </button>
+        <div className="flex items-center gap-2">
+          <RefreshButton onRefresh={() => triggerRefresh(false)} isRefreshing={isRefreshing} />
+
+          <button
+            onClick={() => {
+              setEditingCustomer(null);
+              setIsModalOpen(true);
+            }}
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold shadow-md shadow-indigo-600/20 transition-all transform hover:-translate-y-0.5"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Add Customer</span>
+          </button>
+        </div>
       </div>
 
       {/* Search Bar */}

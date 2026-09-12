@@ -22,6 +22,8 @@ import {
   duplicateQuotation,
 } from '@/lib/storage';
 import { QuotationPrintView } from '@/components/QuotationPrintView';
+import { RefreshButton } from '@/components/RefreshButton';
+import { useAutoSync } from '@/lib/useAutoSync';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 
@@ -38,9 +40,9 @@ export default function QuotationDetailPage() {
 
   const printRef = useRef<HTMLDivElement>(null);
 
-  const loadData = async () => {
+  const loadData = async (silent = false) => {
     try {
-      setLoading(true);
+      if (!silent) setLoading(true);
       if (id) {
         const [qData, sData] = await Promise.all([
           getQuotationById(id),
@@ -52,13 +54,18 @@ export default function QuotationDetailPage() {
     } catch (e) {
       console.error('Error loading quotation detail:', e);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
   useEffect(() => {
-    loadData();
+    loadData(false);
   }, [id]);
+
+  const { isRefreshing, triggerRefresh } = useAutoSync(
+    (silent) => loadData(silent),
+    { intervalMs: 30000, enableFocus: true, enableInterval: true }
+  );
 
   const handlePrint = () => {
     window.print();
@@ -172,6 +179,8 @@ export default function QuotationDetailPage() {
 
         {/* Action Buttons */}
         <div className="flex flex-wrap items-center gap-2 self-end md:self-auto">
+          <RefreshButton onRefresh={() => triggerRefresh(false)} isRefreshing={isRefreshing} />
+
           {/* Status Dropdown */}
           <div className="flex items-center gap-1.5 bg-slate-100 px-3 py-1.5 rounded-xl text-xs font-medium text-slate-700 border border-slate-200">
             <span>Status:</span>

@@ -17,6 +17,8 @@ import { getProducts, createProduct, updateProduct, deleteProduct } from '@/lib/
 import { formatCurrency } from '@/lib/utils';
 import { ProductModal } from '@/components/ProductModal';
 import { ConfirmModal } from '@/components/ConfirmModal';
+import { RefreshButton } from '@/components/RefreshButton';
+import { useAutoSync } from '@/lib/useAutoSync';
 import { INITIAL_PRODUCTS } from '@/lib/seed-data';
 
 const CATEGORY_TABS: (ProductCategory | 'All')[] = [
@@ -44,21 +46,26 @@ export default function ProductsPage() {
   const [resetModalOpen, setResetModalOpen] = useState(false);
   const [isActionLoading, setIsActionLoading] = useState(false);
 
-  const loadProducts = async () => {
+  const loadProducts = async (silent = false) => {
     try {
-      setLoading(true);
+      if (!silent) setLoading(true);
       const data = await getProducts();
       setProducts(data);
     } catch (e) {
       console.error('Error fetching products:', e);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
   useEffect(() => {
-    loadProducts();
+    loadProducts(false);
   }, []);
+
+  const { isRefreshing, triggerRefresh } = useAutoSync(
+    (silent) => loadProducts(silent),
+    { intervalMs: 30000, enableFocus: true, enableInterval: true }
+  );
 
   const filteredProducts = useMemo(() => {
     return products.filter((p) => {
@@ -124,6 +131,8 @@ export default function ProductsPage() {
         </div>
 
         <div className="flex items-center gap-2">
+          <RefreshButton onRefresh={() => triggerRefresh(false)} isRefreshing={isRefreshing} />
+
           {products.length === 0 && (
             <button
               onClick={() => setResetModalOpen(true)}

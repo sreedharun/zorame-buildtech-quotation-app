@@ -22,6 +22,8 @@ import {
 import { Quotation, Product, Customer, CompanySettings } from '@/lib/types';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import { StatusBadge } from '@/components/StatusBadge';
+import { RefreshButton } from '@/components/RefreshButton';
+import { useAutoSync } from '@/lib/useAutoSync';
 
 export default function DashboardPage() {
   const [quotations, setQuotations] = useState<Quotation[]>([]);
@@ -30,27 +32,34 @@ export default function DashboardPage() {
   const [settings, setSettings] = useState<CompanySettings | null>(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    async function loadData() {
-      try {
-        const [qList, pList, cList, sData] = await Promise.all([
-          getQuotations(),
-          getProducts(),
-          getCustomers(),
-          getCompanySettings(),
-        ]);
-        setQuotations(qList);
-        setProducts(pList);
-        setCustomers(cList);
-        setSettings(sData);
-      } catch (e) {
-        console.error('Error loading dashboard data:', e);
-      } finally {
-        setLoading(false);
-      }
+  const loadData = async (silent = false) => {
+    try {
+      if (!silent) setLoading(true);
+      const [qList, pList, cList, sData] = await Promise.all([
+        getQuotations(),
+        getProducts(),
+        getCustomers(),
+        getCompanySettings(),
+      ]);
+      setQuotations(qList);
+      setProducts(pList);
+      setCustomers(cList);
+      setSettings(sData);
+    } catch (e) {
+      console.error('Error loading dashboard data:', e);
+    } finally {
+      if (!silent) setLoading(false);
     }
-    loadData();
+  };
+
+  useEffect(() => {
+    loadData(false);
   }, []);
+
+  const { isRefreshing, triggerRefresh } = useAutoSync(
+    (silent) => loadData(silent),
+    { intervalMs: 30000, enableFocus: true, enableInterval: true }
+  );
 
   const totalValue = quotations.reduce((sum, q) => sum + (q.grand_total || 0), 0);
   const approvedValue = quotations
@@ -70,7 +79,7 @@ export default function DashboardPage() {
               Roofing Quotation & Billing Desk
             </div>
             <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight">
-              Welcome back to {settings?.company_name || 'Apex Roofing'}
+              Welcome back to {settings?.company_name || 'Zorame Buildtech'}
             </h1>
             <p className="text-slate-300 text-sm max-w-xl">
               Quickly create, print, and manage itemized quotations for roofing sheets, screws,
@@ -78,7 +87,12 @@ export default function DashboardPage() {
             </p>
           </div>
 
-          <div className="flex flex-wrap gap-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <RefreshButton
+              onRefresh={() => triggerRefresh(false)}
+              isRefreshing={isRefreshing}
+              className="bg-white/10 hover:bg-white/20 active:bg-white/30 text-white border-white/20"
+            />
             <Link
               href="/quotations/new"
               className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-sky-500 hover:bg-sky-400 text-white font-semibold shadow-lg shadow-sky-500/30 transition-all transform hover:-translate-y-0.5"

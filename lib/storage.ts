@@ -283,12 +283,14 @@ export async function getProducts(): Promise<Product[]> {
         .order('category', { ascending: true })
         .order('name', { ascending: true });
       if (!error && data) {
-        return data.map((p) => {
+        const mapped = data.map((p) => {
           if ((p.category === 'Roofing Sheet' || p.name?.toLowerCase().includes('sheet')) && p.unit === 'sqft') {
             return { ...p, unit: 'meter' };
           }
           return p as Product;
         });
+        setLocalItem(STORAGE_KEYS.PRODUCTS, mapped);
+        return mapped;
       }
     } catch (e) {
       console.warn('Supabase products fetch failed, using fallback:', e);
@@ -387,7 +389,10 @@ export async function getCustomers(): Promise<Customer[]> {
         .from('customers')
         .select('*')
         .order('name', { ascending: true });
-      if (!error && data) return data as Customer[];
+      if (!error && data) {
+        setLocalItem(STORAGE_KEYS.CUSTOMERS, data as Customer[]);
+        return data as Customer[];
+      }
     } catch (e) {
       console.warn('Supabase customers fetch failed, using fallback:', e);
     }

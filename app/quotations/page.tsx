@@ -25,6 +25,8 @@ import {
 import { formatCurrency, formatDate } from '@/lib/utils';
 import { StatusBadge } from '@/components/StatusBadge';
 import { ConfirmModal } from '@/components/ConfirmModal';
+import { RefreshButton } from '@/components/RefreshButton';
+import { useAutoSync } from '@/lib/useAutoSync';
 
 const STATUS_FILTERS: (QuotationStatus | 'All')[] = [
   'All',
@@ -43,21 +45,26 @@ export default function QuotationsPage() {
   const [deleteModal, setDeleteModal] = useState<{ id: string; quoteNo: string } | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
-  const loadQuotations = async () => {
+  const loadQuotations = async (silent = false) => {
     try {
-      setLoading(true);
+      if (!silent) setLoading(true);
       const data = await getQuotations();
       setQuotations(data);
     } catch (e) {
       console.error('Error fetching quotations:', e);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
   useEffect(() => {
-    loadQuotations();
+    loadQuotations(false);
   }, []);
+
+  const { isRefreshing, triggerRefresh } = useAutoSync(
+    (silent) => loadQuotations(silent),
+    { intervalMs: 30000, enableFocus: true, enableInterval: true }
+  );
 
   const filteredQuotations = useMemo(() => {
     return quotations.filter((q) => {
@@ -130,13 +137,16 @@ export default function QuotationsPage() {
           </p>
         </div>
 
-        <Link
-          href="/quotations/new"
-          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-sm font-semibold shadow-md shadow-sky-600/20 transition-all transform hover:-translate-y-0.5"
-        >
-          <Plus className="w-4 h-4" />
-          <span>New Quotation</span>
-        </Link>
+        <div className="flex items-center gap-2.5">
+          <RefreshButton onRefresh={() => triggerRefresh(false)} isRefreshing={isRefreshing} />
+          <Link
+            href="/quotations/new"
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-sm font-semibold shadow-md shadow-sky-600/20 transition-all transform hover:-translate-y-0.5"
+          >
+            <Plus className="w-4 h-4" />
+            <span>New Quotation</span>
+          </Link>
+        </div>
       </div>
 
       {/* Status Filter Tabs */}
