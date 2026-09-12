@@ -126,16 +126,24 @@ CREATE TABLE IF NOT EXISTS quotations (
     valid_until DATE NOT NULL,
     status TEXT NOT NULL DEFAULT 'Draft',
     subtotal NUMERIC(12,2) NOT NULL DEFAULT 0.00,
+    tax_rate NUMERIC(5,2) DEFAULT 18.00,
     tax_amount NUMERIC(12,2) NOT NULL DEFAULT 0.00,
     discount_type TEXT DEFAULT 'flat',
     discount_value NUMERIC(10,2) DEFAULT 0.00,
     discount_amount NUMERIC(12,2) DEFAULT 0.00,
     grand_total NUMERIC(12,2) NOT NULL DEFAULT 0.00,
+    advance_paid NUMERIC(12,2) DEFAULT 0.00,
+    payment_status TEXT DEFAULT 'Unpaid',
     terms_and_conditions TEXT,
     notes TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- Migrations for existing databases:
+ALTER TABLE quotations ADD COLUMN IF NOT EXISTS tax_rate NUMERIC(5,2) DEFAULT 18.00;
+ALTER TABLE quotations ADD COLUMN IF NOT EXISTS advance_paid NUMERIC(12,2) DEFAULT 0.00;
+ALTER TABLE quotations ADD COLUMN IF NOT EXISTS payment_status TEXT DEFAULT 'Unpaid';
 
 CREATE TABLE IF NOT EXISTS quotation_items (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),

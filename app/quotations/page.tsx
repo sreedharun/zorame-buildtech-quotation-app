@@ -22,8 +22,8 @@ import {
   duplicateQuotation,
   updateQuotation,
 } from '@/lib/storage';
-import { formatCurrency, formatDate } from '@/lib/utils';
-import { StatusBadge } from '@/components/StatusBadge';
+import { formatCurrency, formatDate, calculatePaymentStatus, calculateBalanceRemaining } from '@/lib/utils';
+import { StatusBadge, PaymentStatusBadge } from '@/components/StatusBadge';
 import { ConfirmModal } from '@/components/ConfirmModal';
 import { RefreshButton } from '@/components/RefreshButton';
 import { useAutoSync } from '@/lib/useAutoSync';
@@ -222,6 +222,7 @@ export default function QuotationsPage() {
                 <th className="py-3 px-4">Quote Date</th>
                 <th className="py-3 px-4">Valid Until</th>
                 <th className="py-3 px-4">Status</th>
+                <th className="py-3 px-4">Payment</th>
                 <th className="py-3 px-4 text-right">Grand Total (₹)</th>
                 <th className="py-3 px-4 text-center">Actions</th>
               </tr>
@@ -284,6 +285,26 @@ export default function QuotationsPage() {
                     </div>
                   </td>
 
+                  {/* Payment Status */}
+                  <td className="py-4 px-4">
+                    <div className="space-y-0.5">
+                      <PaymentStatusBadge
+                        status={q.payment_status || calculatePaymentStatus(q.grand_total, q.advance_paid || 0)}
+                        size="sm"
+                      />
+                      {Number(q.advance_paid) > 0 && (
+                        <div className="text-[10px] text-slate-500 font-mono">
+                          Paid: {formatCurrency(q.advance_paid || 0)}
+                          {(q.balance_amount !== undefined ? q.balance_amount : calculateBalanceRemaining(q.grand_total, q.advance_paid || 0)) > 0 && (
+                            <span className="block text-amber-700 font-semibold">
+                              Bal: {formatCurrency(q.balance_amount !== undefined ? q.balance_amount : calculateBalanceRemaining(q.grand_total, q.advance_paid || 0))}
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </td>
+
                   {/* Total */}
                   <td className="py-4 px-4 text-right font-mono font-bold text-slate-900 text-sm">
                     {formatCurrency(q.grand_total)}
@@ -330,7 +351,7 @@ export default function QuotationsPage() {
 
               {filteredQuotations.length === 0 && !loading && (
                 <tr>
-                  <td colSpan={7} className="py-12 text-center text-slate-400 space-y-2">
+                  <td colSpan={8} className="py-12 text-center text-slate-400 space-y-2">
                     <FileText className="w-8 h-8 mx-auto text-slate-300" />
                     <p>No quotations found matching your filters.</p>
                   </td>

@@ -257,3 +257,31 @@ export function calculateQuotationTotalWeight(
   return Number(totalWeight.toFixed(2));
 }
 
+/**
+ * Determine payment status from grand total and advance paid
+ */
+export function calculatePaymentStatus(
+  grandTotal: number,
+  advancePaid: number
+): 'Unpaid' | 'Partially Paid' | 'Fully Paid' {
+  const advance = Math.max(0, Number(advancePaid) || 0);
+  const total = Math.max(0, Number(grandTotal) || 0);
+
+  if (advance <= 0) return 'Unpaid';
+  if (advance >= total && total > 0) return 'Fully Paid';
+  if (advance > 0) return 'Partially Paid';
+  return 'Unpaid';
+}
+
+/**
+ * Calculate balance remaining from grand total and advance paid
+ */
+export function calculateBalanceRemaining(
+  grandTotal: number,
+  advancePaid: number
+): number {
+  const total = Math.max(0, Number(grandTotal) || 0);
+  const advance = Math.max(0, Number(advancePaid) || 0);
+  return Number(Math.max(0, total - advance).toFixed(2));
+}
+

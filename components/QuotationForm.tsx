@@ -26,6 +26,8 @@ import {
   calculateQuotationTotals,
   calculateSteelTotals,
   calculateQuotationTotalWeight,
+  calculatePaymentStatus,
+  calculateBalanceRemaining,
   formatCurrency,
   numberToWords,
   addDays,
@@ -39,6 +41,7 @@ import {
 import { CustomerModal } from './CustomerModal';
 import { ProductCombobox } from './ProductCombobox';
 import { CustomerCombobox } from './CustomerCombobox';
+import { PaymentStatusBadge } from './StatusBadge';
 import {
   Plus,
   Trash2,
@@ -103,6 +106,9 @@ export function QuotationForm({
   const [discountType, setDiscountType] = useState<DiscountType>('flat');
   const [discountValue, setDiscountValue] = useState<number>(0);
 
+  // Payment Tracking
+  const [advancePaid, setAdvancePaid] = useState<number>(0);
+
   // Terms & Notes
   const [terms, setTerms] = useState('');
   const [notes, setNotes] = useState('');
@@ -136,6 +142,7 @@ export function QuotationForm({
           setDiscountType(initialQuotation.discount_type || 'flat');
           setDiscountValue(initialQuotation.discount_value || 0);
           setGstRate(typeof initialQuotation.tax_rate === 'number' ? initialQuotation.tax_rate : 18);
+          setAdvancePaid(initialQuotation.advance_paid || 0);
           setTerms(initialQuotation.terms_and_conditions || sData.default_terms);
           setNotes(initialQuotation.notes || '');
           if (typeof initialQuotation.steel_price_per_kg === 'number') {
@@ -468,6 +475,10 @@ export function QuotationForm({
   const totalWeightKg = calculateQuotationTotalWeight(items);
   const hasSteelRows = items.some((i) => i.item_type === 'steel');
 
+  // Compute Live Payment Tracking
+  const balanceRemaining = calculateBalanceRemaining(totals.grandTotal, advancePaid);
+  const paymentStatus = calculatePaymentStatus(totals.grandTotal, advancePaid);
+
   // Handle Save
   const handleSave = async (redirectAfter = true) => {
     if (!customerName.trim()) {
@@ -498,6 +509,9 @@ export function QuotationForm({
         discount_value: discountValue,
         discount_amount: totals.discountAmount,
         grand_total: totals.grandTotal,
+        advance_paid: advancePaid,
+        balance_amount: balanceRemaining,
+        payment_status: paymentStatus,
         total_weight_kg: totals.totalSteelWeightKg || totalWeightKg,
         total_steel_length_meters: totals.totalSteelLengthMeters,
         total_steel_weight_kg: totals.totalSteelWeightKg,
@@ -1341,6 +1355,39 @@ export function QuotationForm({
               <span className="font-mono font-black text-2xl text-sky-700">
                 {formatCurrency(totals.grandTotal)}
               </span>
+            </div>
+
+            {/* Payment Tracking Section */}
+            <div className="pt-3 border-t border-slate-200/80 space-y-2.5 bg-slate-50/80 p-3.5 rounded-xl border border-slate-200">
+              <div className="flex items-center justify-between">
+                <span className="font-bold text-slate-800 text-xs uppercase tracking-wider">Payment Status</span>
+                <PaymentStatusBadge status={paymentStatus} size="sm" />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Advance Paid (₹)
+                </label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">₹</span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="any"
+                    value={advancePaid === 0 ? '' : advancePaid}
+                    onChange={(e) => setAdvancePaid(parseFloat(e.target.value) || 0)}
+                    placeholder="0.00"
+                    className="w-full pl-7 pr-3 py-1.5 border border-slate-300 rounded-lg text-xs font-mono font-bold text-slate-900 bg-white focus:ring-2 focus:ring-sky-500 outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-between items-center pt-2 border-t border-slate-200">
+                <span className="text-xs font-bold text-slate-700">Balance Remaining:</span>
+                <span className="font-mono font-bold text-sm text-slate-900">
+                  {formatCurrency(balanceRemaining)}
+                </span>
+              </div>
             </div>
 
             {/* Amount In Words */}

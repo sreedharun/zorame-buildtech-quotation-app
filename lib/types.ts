@@ -44,6 +44,7 @@ export interface Customer {
 }
 
 export type QuotationStatus = 'Draft' | 'Sent' | 'Approved' | 'Rejected';
+export type PaymentStatus = 'Unpaid' | 'Partially Paid' | 'Fully Paid';
 export type DiscountType = 'flat' | 'percent';
 
 export interface QuotationItem {
@@ -91,6 +92,11 @@ export interface Quotation {
   discount_value: number;
   discount_amount: number;
   grand_total: number;
+
+  // Payment Tracking Fields
+  advance_paid?: number;
+  balance_amount?: number;
+  payment_status?: PaymentStatus;
 
   // Steel weight & cost calculation fields
   total_steel_length_meters?: number;

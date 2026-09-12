@@ -2,8 +2,8 @@
 
 import React from 'react';
 import { CompanySettings, Quotation } from '@/lib/types';
-import { formatCurrency, formatDate, numberToWords, calculateQuotationTotalWeight } from '@/lib/utils';
-import { StatusBadge } from './StatusBadge';
+import { formatCurrency, formatDate, numberToWords, calculateQuotationTotalWeight, calculatePaymentStatus, calculateBalanceRemaining } from '@/lib/utils';
+import { StatusBadge, PaymentStatusBadge } from './StatusBadge';
 import { Building2, MapPin, Phone, Mail, FileCheck2, Scale } from 'lucide-react';
 
 interface QuotationPrintViewProps {
@@ -15,6 +15,14 @@ export const QuotationPrintView = React.forwardRef<HTMLDivElement, QuotationPrin
   ({ quotation, settings }, ref) => {
     const totalWeightKg =
       quotation.total_weight_kg || calculateQuotationTotalWeight(quotation.items || []);
+
+    const advancePaid = Number(quotation.advance_paid || 0);
+    const balanceRemaining =
+      quotation.balance_amount !== undefined
+        ? quotation.balance_amount
+        : calculateBalanceRemaining(quotation.grand_total, advancePaid);
+    const paymentStatus =
+      quotation.payment_status || calculatePaymentStatus(quotation.grand_total, advancePaid);
 
     return (
       <div
@@ -68,8 +76,9 @@ export const QuotationPrintView = React.forwardRef<HTMLDivElement, QuotationPrin
             <div className="text-base font-black text-slate-900 font-mono">
               {quotation.quotation_number}
             </div>
-            <div className="no-print pt-0.5">
+            <div className="no-print pt-0.5 flex flex-wrap items-center gap-1 justify-start sm:justify-end">
               <StatusBadge status={quotation.status} size="sm" />
+              <PaymentStatusBadge status={paymentStatus} size="sm" />
             </div>
             <div className="text-[11px] text-slate-600 space-y-0.5 pt-1.5 border-t border-slate-200">
               <div>
@@ -303,6 +312,30 @@ export const QuotationPrintView = React.forwardRef<HTMLDivElement, QuotationPrin
               <span className="font-mono text-lg text-sky-700">
                 {formatCurrency(quotation.grand_total)}
               </span>
+            </div>
+
+            {/* Advance Received & Balance Due */}
+            <div className="border-t border-slate-200 pt-1.5 space-y-1">
+              {advancePaid > 0 && (
+                <div className="flex justify-between text-slate-700 font-medium">
+                  <span>Advance Received:</span>
+                  <span className="font-mono font-semibold text-emerald-700">
+                    - {formatCurrency(advancePaid)}
+                  </span>
+                </div>
+              )}
+              <div className="flex justify-between items-baseline font-bold text-xs pt-0.5">
+                <span className="text-slate-900">Payment Status:</span>
+                <span className="font-semibold text-[11px] text-slate-800">
+                  {paymentStatus}
+                </span>
+              </div>
+              <div className="flex justify-between items-baseline font-bold text-xs pt-1 border-t border-slate-200">
+                <span className="text-slate-900">Balance Payable:</span>
+                <span className="font-mono text-sm font-black text-slate-900">
+                  {formatCurrency(balanceRemaining)}
+                </span>
+              </div>
             </div>
           </div>
         </div>

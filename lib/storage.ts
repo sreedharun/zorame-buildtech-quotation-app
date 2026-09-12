@@ -519,6 +519,11 @@ export async function getQuotations(): Promise<Quotation[]> {
               })
             : (localMatch?.items || []);
 
+          const advPaid = Number(q.advance_paid !== undefined && q.advance_paid !== null ? q.advance_paid : (localMatch?.advance_paid ?? 0));
+          const grandTot = Number(q.grand_total ?? localMatch?.grand_total ?? 0);
+          const payStatus = (q.payment_status || localMatch?.payment_status || (advPaid > 0 ? (advPaid >= grandTot ? 'Fully Paid' : 'Partially Paid') : 'Unpaid'));
+          const balAmt = Number(Math.max(0, grandTot - advPaid).toFixed(2));
+
           return {
             ...localMatch,
             ...q,
@@ -528,6 +533,9 @@ export async function getQuotations(): Promise<Quotation[]> {
               : (q.subtotal > 0 && typeof q.tax_amount === 'number'
                   ? Math.round((q.tax_amount / q.subtotal) * 100)
                   : (localMatch?.tax_rate ?? 18)),
+            advance_paid: advPaid,
+            balance_amount: balAmt,
+            payment_status: payStatus,
             items: finalItems,
           };
         }) as Quotation[];
@@ -591,6 +599,11 @@ export async function getQuotationById(id: string): Promise<Quotation | null> {
             })
           : (localMatch?.items || []);
 
+        const advPaid = Number(quote.advance_paid !== undefined && quote.advance_paid !== null ? quote.advance_paid : (localMatch?.advance_paid ?? 0));
+        const grandTot = Number(quote.grand_total ?? localMatch?.grand_total ?? 0);
+        const payStatus = (quote.payment_status || localMatch?.payment_status || (advPaid > 0 ? (advPaid >= grandTot ? 'Fully Paid' : 'Partially Paid') : 'Unpaid'));
+        const balAmt = Number(Math.max(0, grandTot - advPaid).toFixed(2));
+
         const finalQuote: Quotation = {
           ...localMatch,
           ...quote,
@@ -600,6 +613,9 @@ export async function getQuotationById(id: string): Promise<Quotation | null> {
             : (quote.subtotal > 0 && typeof quote.tax_amount === 'number'
                 ? Math.round((quote.tax_amount / quote.subtotal) * 100)
                 : (localMatch?.tax_rate ?? 18)),
+          advance_paid: advPaid,
+          balance_amount: balAmt,
+          payment_status: payStatus,
           items: finalItems,
         };
 
@@ -684,6 +700,7 @@ export async function createQuotation(
         steel_price_per_kg: _sp,
         total_steel_cost: _sc,
         tax_rate: _tr,
+        balance_amount: _ba,
         ...headerOnly
       } = newQuotation;
 
@@ -692,6 +709,8 @@ export async function createQuotation(
         id: isValidUUID(headerOnly.id) ? headerOnly.id : undefined,
         customer_id: isValidUUID(headerOnly.customer_id) ? headerOnly.customer_id : null,
         customer_site_location: headerOnly.customer_site_location ?? '',
+        advance_paid: Number(headerOnly.advance_paid) || 0,
+        payment_status: headerOnly.payment_status || 'Unpaid',
       };
 
       let { data: insertedHeader, error: headErr } = await supabase
@@ -701,7 +720,7 @@ export async function createQuotation(
         .maybeSingle();
 
       if (headErr && headErr.code === 'PGRST204') {
-        const { tax_rate: _, ...retryHeader } = headerForSupabase;
+        const { tax_rate: _, advance_paid: _ap, payment_status: _ps, ...retryHeader } = headerForSupabase;
         const retry = await supabase
           .from('quotations')
           .insert(retryHeader)
@@ -806,6 +825,7 @@ export async function updateQuotation(
         steel_price_per_kg: _sp,
         total_steel_cost: _sc,
         tax_rate: _tr,
+        balance_amount: _ba,
         ...headerOnly
       } = updated;
 
@@ -813,6 +833,8 @@ export async function updateQuotation(
         ...headerOnly,
         customer_id: isValidUUID(headerOnly.customer_id) ? headerOnly.customer_id : null,
         customer_site_location: headerOnly.customer_site_location ?? '',
+        advance_paid: Number(headerOnly.advance_paid) || 0,
+        payment_status: headerOnly.payment_status || 'Unpaid',
       };
 
       let { data: updatedHeader, error: updateErr } = await supabase
@@ -823,7 +845,7 @@ export async function updateQuotation(
         .maybeSingle();
 
       if (updateErr && updateErr.code === 'PGRST204') {
-        const { tax_rate: _, ...retryHeader } = headerForSupabase;
+        const { tax_rate: _, advance_paid: _ap, payment_status: _ps, ...retryHeader } = headerForSupabase;
         const retry = await supabase
           .from('quotations')
           .update(retryHeader)

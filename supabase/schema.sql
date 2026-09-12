@@ -106,19 +106,28 @@ CREATE TABLE IF NOT EXISTS quotations (
     valid_until DATE NOT NULL,
     status TEXT NOT NULL DEFAULT 'Draft' CHECK (status IN ('Draft', 'Sent', 'Approved', 'Rejected')),
     subtotal NUMERIC(12,2) NOT NULL DEFAULT 0.00,
+    tax_rate NUMERIC(5,2) DEFAULT 18.00,
     tax_amount NUMERIC(12,2) NOT NULL DEFAULT 0.00,
     discount_type TEXT DEFAULT 'flat' CHECK (discount_type IN ('flat', 'percent')),
     discount_value NUMERIC(10,2) DEFAULT 0.00,
     discount_amount NUMERIC(12,2) DEFAULT 0.00,
     grand_total NUMERIC(12,2) NOT NULL DEFAULT 0.00,
+    advance_paid NUMERIC(12,2) DEFAULT 0.00,
+    payment_status TEXT DEFAULT 'Unpaid' CHECK (payment_status IN ('Unpaid', 'Partially Paid', 'Fully Paid')),
     terms_and_conditions TEXT,
     notes TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- Migrations for existing databases:
+ALTER TABLE quotations ADD COLUMN IF NOT EXISTS tax_rate NUMERIC(5,2) DEFAULT 18.00;
+ALTER TABLE quotations ADD COLUMN IF NOT EXISTS advance_paid NUMERIC(12,2) DEFAULT 0.00;
+ALTER TABLE quotations ADD COLUMN IF NOT EXISTS payment_status TEXT DEFAULT 'Unpaid';
+
 CREATE INDEX IF NOT EXISTS idx_quotations_customer_name ON quotations(customer_name);
 CREATE INDEX IF NOT EXISTS idx_quotations_status ON quotations(status);
+CREATE INDEX IF NOT EXISTS idx_quotations_payment_status ON quotations(payment_status);
 CREATE INDEX IF NOT EXISTS idx_quotations_date ON quotations(quotation_date);
 
 CREATE TRIGGER update_quotations_updated_at
