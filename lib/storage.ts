@@ -482,7 +482,7 @@ export async function deleteCustomer(id: string): Promise<boolean> {
 }
 
 // ============================================================================
-// ITEM METADATA HELPERS (DUAL-PERSISTENCE FOR CLOUD SYNC)
+// ITEM & ADVANCE METADATA HELPERS (DUAL-PERSISTENCE FOR CLOUD SYNC)
 // ============================================================================
 interface ItemMetaEntry {
   idx: number;
@@ -498,38 +498,94 @@ interface ItemMetaEntry {
   unit_weight_kg?: number;
 }
 
-function extractItemMetadata(rawNotes: string | null | undefined): { notes: string; metadata: ItemMetaEntry[] } {
-  if (!rawNotes) return { notes: '', metadata: [] };
-  const pattern = /<!--__ITEM_META__([\s\S]*?)__-->/;
-  const match = rawNotes.match(pattern);
-  if (!match || !match[1]) {
-    return { notes: rawNotes.trim(), metadata: [] };
-  }
-  try {
-    const parsed = JSON.parse(match[1]) as ItemMetaEntry[];
-    const cleanedNotes = rawNotes.replace(pattern, '').trim();
-    return { notes: cleanedNotes, metadata: Array.isArray(parsed) ? parsed : [] };
-  } catch {
-    return { notes: rawNotes.replace(pattern, '').trim(), metadata: [] };
-  }
+interface QuotationMetaPayload {
+  items?: ItemMetaEntry[];
+  advances?: QuotationAdvance[];
 }
 
-function embedItemMetadata(rawNotes: string | null | undefined, items: QuotationItem[]): string {
-  const cleanedNotes = (rawNotes || '').replace(/<!--__ITEM_META__[\s\S]*?__-->/g, '').trim();
-  const meta: ItemMetaEntry[] = items.map((item, idx) => ({
-    idx,
-    product_name: item.product_name,
-    description: item.description || '',
-    item_type: item.item_type,
-    steel_profile_type: item.steel_profile_type,
-    steel_size: item.steel_size,
-    steel_thickness: item.steel_thickness,
-    length_meters: item.length_meters,
-    weight_per_meter: item.weight_per_meter,
-    weight_kg: item.weight_kg,
-    unit_weight_kg: item.unit_weight_kg,
-  }));
-  const metaTag = `<!--__ITEM_META__${JSON.stringify(meta)}__-->`;
+function extractQuotationMetadata(rawNotes: string | null | undefined): {
+  notes: string;
+  items: ItemMetaEntry[];
+  advances: QuotationAdvance[];
+} {
+  if (!rawNotes) return { notes: '', items: [], advances: [] };
+  
+  let cleanedNotes = rawNotes;
+  let items: ItemMetaEntry[] = [];
+  let advances: QuotationAdvance[] = [];
+
+  // Match unified meta payload: <!--__QUOTE_META__{...}__-->
+  const quoteMetaMatch = cleanedNotes.match(/<!--__QUOTE_META__([\s\S]*?)__-->/);
+  if (quoteMetaMatch && quoteMetaMatch[1]) {
+    try {
+      const parsed = JSON.parse(quoteMetaMatch[1]) as QuotationMetaPayload;
+      if (Array.isArray(parsed.items)) items = parsed.items;
+      if (Array.isArray(parsed.advances)) advances = parsed.advances;
+    } catch {}
+    cleanedNotes = cleanedNotes.replace(/<!--__QUOTE_META__[\s\S]*?__-->/g, '');
+  }
+
+  // Backward compatibility with <!--__ITEM_META__[...]__-->
+  const itemMetaMatch = cleanedNotes.match(/<!--__ITEM_META__([\s\S]*?)__-->/);
+  if (itemMetaMatch && itemMetaMatch[1]) {
+    try {
+      const parsedItems = JSON.parse(itemMetaMatch[1]);
+      if (Array.isArray(parsedItems) && items.length === 0) items = parsedItems;
+    } catch {}
+    cleanedNotes = cleanedNotes.replace(/<!--__ITEM_META__[\s\S]*?__-->/g, '');
+  }
+
+  // Backward compatibility with <!--__ADVANCES_META__[...]__-->
+  const advMetaMatch = cleanedNotes.match(/<!--__ADVANCES_META__([\s\S]*?)__-->/);
+  if (advMetaMatch && advMetaMatch[1]) {
+    try {
+      const parsedAdvances = JSON.parse(advMetaMatch[1]);
+      if (Array.isArray(parsedAdvances) && advances.length === 0) advances = parsedAdvances;
+    } catch {}
+    cleanedNotes = cleanedNotes.replace(/<!--__ADVANCES_META__[\s\S]*?__-->/g, '');
+  }
+
+  return {
+    notes: cleanedNotes.trim(),
+    items,
+    advances,
+  };
+}
+
+function embedQuotationMetadata(
+  rawNotes: string | null | undefined,
+  items: QuotationItem[],
+  advances?: QuotationAdvance[]
+): string {
+  const cleanedNotes = (rawNotes || '')
+    .replace(/<!--__QUOTE_META__[\s\S]*?__-->/g, '')
+    .replace(/<!--__ITEM_META__[\s\S]*?__-->/g, '')
+    .replace(/<!--__ADVANCES_META__[\s\S]*?__-->/g, '')
+    .trim();
+
+  const metaPayload: QuotationMetaPayload = {
+    items: items.map((item, idx) => ({
+      idx,
+      product_name: item.product_name,
+      description: item.description || '',
+      item_type: item.item_type,
+      steel_profile_type: item.steel_profile_type,
+      steel_size: item.steel_size,
+      steel_thickness: item.steel_thickness,
+      length_meters: item.length_meters,
+      weight_per_meter: item.weight_per_meter,
+      weight_kg: item.weight_kg,
+      unit_weight_kg: item.unit_weight_kg,
+    })),
+    advances: (advances || []).map((adv) => ({
+      id: adv.id,
+      amount: Number(adv.amount) || 0,
+      payment_date: adv.payment_date,
+      notes: adv.notes,
+    })),
+  };
+
+  const metaTag = `<!--__QUOTE_META__${JSON.stringify(metaPayload)}__-->`;
   return cleanedNotes ? `${cleanedNotes}\n\n${metaTag}` : metaTag;
 }
 
@@ -572,7 +628,7 @@ export async function getQuotations(): Promise<Quotation[]> {
           const dbItems = items ? items.filter((item) => item.quotation_id === q.id) : [];
           const localMatch = localList.find((lq) => lq.id === q.id || lq.quotation_number === q.quotation_number);
           
-          const { notes: cleanNotes, metadata: metaList } = extractItemMetadata(q.notes);
+          const { notes: cleanNotes, items: metaList, advances: metaAdvances } = extractQuotationMetadata(q.notes);
 
           // Merge db items with metadata and local match items to ensure description & steel specs are never lost
           const finalItems = dbItems.length > 0
@@ -609,7 +665,7 @@ export async function getQuotations(): Promise<Quotation[]> {
               })
             : (localMatch?.items || []);
 
-          // Match advances for this quotation
+          // Match advances for this quotation (Priority: 1. DB table, 2. metadata from notes, 3. local cache, 4. legacy single advance)
           const quoteDbAdvances = dbAdvances.filter((a) => a.quotation_id === q.id);
           let finalAdvances: QuotationAdvance[] = [];
           if (quoteDbAdvances.length > 0) {
@@ -620,6 +676,14 @@ export async function getQuotations(): Promise<Quotation[]> {
               payment_date: a.payment_date || q.quotation_date,
               notes: a.notes || undefined,
               created_at: a.created_at,
+            }));
+          } else if (metaAdvances && metaAdvances.length > 0) {
+            finalAdvances = metaAdvances.map((a) => ({
+              id: a.id,
+              quotation_id: q.id,
+              amount: Number(a.amount) || 0,
+              payment_date: a.payment_date || q.quotation_date,
+              notes: a.notes || undefined,
             }));
           } else if (localMatch?.advances && localMatch.advances.length > 0) {
             finalAdvances = localMatch.advances;
@@ -710,7 +774,7 @@ export async function getQuotationById(id: string): Promise<Quotation | null> {
           // Graceful fallback
         }
 
-        const { notes: cleanNotes, metadata: metaList } = extractItemMetadata(quote.notes);
+        const { notes: cleanNotes, items: metaList, advances: metaAdvances } = extractQuotationMetadata(quote.notes);
 
         const finalItems = (items && items.length > 0)
           ? items.map((dbItem, idx) => {
@@ -746,15 +810,25 @@ export async function getQuotationById(id: string): Promise<Quotation | null> {
             })
           : (localMatch?.items || []);
 
+        // Match advances for this quotation (Priority: 1. DB table, 2. metadata from notes, 3. local cache, 4. legacy single advance)
+        const quoteDbAdvances = dbAdvances.filter((a) => a.quotation_id === quote.id);
         let finalAdvances: QuotationAdvance[] = [];
-        if (dbAdvances.length > 0) {
-          finalAdvances = dbAdvances.map((a) => ({
+        if (quoteDbAdvances.length > 0) {
+          finalAdvances = quoteDbAdvances.map((a) => ({
             id: a.id,
             quotation_id: a.quotation_id,
             amount: Number(a.amount) || 0,
             payment_date: a.payment_date || quote.quotation_date,
             notes: a.notes || undefined,
             created_at: a.created_at,
+          }));
+        } else if (metaAdvances && metaAdvances.length > 0) {
+          finalAdvances = metaAdvances.map((a) => ({
+            id: a.id,
+            quotation_id: quote.id,
+            amount: Number(a.amount) || 0,
+            payment_date: a.payment_date || quote.quotation_date,
+            notes: a.notes || undefined,
           }));
         } else if (localMatch?.advances && localMatch.advances.length > 0) {
           finalAdvances = localMatch.advances;
@@ -898,7 +972,7 @@ export async function createQuotation(
         ...headerOnly
       } = newQuotation;
 
-      const notesWithMetadata = embedItemMetadata(headerOnly.notes, formattedItems);
+      const notesWithMetadata = embedQuotationMetadata(headerOnly.notes, formattedItems, formattedAdvances);
 
       const headerForSupabase: Record<string, any> = {
         ...headerOnly,
@@ -968,10 +1042,10 @@ export async function createQuotation(
             payment_date: adv.payment_date || timestamp.split('T')[0],
             notes: adv.notes || null,
           }));
-          try {
-            await supabase.from('quotation_advances').insert(advancesForSupabase);
-          } catch (advErr) {
-            console.warn('Supabase quotation_advances insert error:', advErr);
+          console.info('[Supabase] Inserting quotation_advances payload:', advancesForSupabase);
+          const { error: advErr } = await supabase.from('quotation_advances').insert(advancesForSupabase);
+          if (advErr) {
+            console.warn('[Supabase] quotation_advances table insert warning (run SQL migration to create table):', advErr);
           }
         }
         
@@ -1082,7 +1156,7 @@ export async function updateQuotation(
         ...headerOnly
       } = updated;
 
-      const notesWithMetadata = embedItemMetadata(headerOnly.notes, formattedItems);
+      const notesWithMetadata = embedQuotationMetadata(headerOnly.notes, formattedItems, formattedAdvances);
 
       const headerForSupabase: Record<string, any> = {
         ...headerOnly,
@@ -1157,7 +1231,11 @@ export async function updateQuotation(
               payment_date: adv.payment_date || timestamp.split('T')[0],
               notes: adv.notes || null,
             }));
-            await supabase.from('quotation_advances').insert(advancesForSupabase);
+            console.info('[Supabase] Syncing quotation_advances payload:', advancesForSupabase);
+            const { error: advErr } = await supabase.from('quotation_advances').insert(advancesForSupabase);
+            if (advErr) {
+              console.warn('[Supabase] quotation_advances sync warning (run SQL migration to create table):', advErr);
+            }
           }
         } catch (advErr) {
           console.warn('Supabase quotation_advances sync error:', advErr);
