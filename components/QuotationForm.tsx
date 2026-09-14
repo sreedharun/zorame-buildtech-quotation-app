@@ -196,6 +196,7 @@ export function QuotationForm({
                 item_type: 'product',
                 product_id: firstProd.id,
                 product_name: firstProd.name,
+                description: firstProd.description || '',
                 category: firstProd.category,
                 unit: firstProd.unit,
                 unit_price: firstProd.unit_price,
@@ -282,6 +283,7 @@ export function QuotationForm({
           item_type: 'product',
           product_id: prod.id,
           product_name: prod.name,
+          description: prod.description || '',
           category: prod.category,
           unit: prod.unit,
           unit_price: prod.unit_price,
@@ -337,6 +339,7 @@ export function QuotationForm({
       weight_kg: calcWeight.totalWeightKg,
       unit_weight_kg: calcWeight.weightPerPieceKg,
       product_name: `${profileDef.label} ${defaultSize} x ${defaultThickness}`,
+      description: '',
       category: 'Pipe',
       unit: 'pcs',
       unit_price: 0,
@@ -369,6 +372,9 @@ export function QuotationForm({
         current.tax_rate = product.tax_rate;
         current.weight_kg = undefined;
         current.unit_weight_kg = undefined;
+        if (!current.description && product.description) {
+          current.description = product.description;
+        }
       } else {
         current.product_id = null;
         if (customName !== undefined) {

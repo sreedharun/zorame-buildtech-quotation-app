@@ -482,6 +482,58 @@ export async function deleteCustomer(id: string): Promise<boolean> {
 }
 
 // ============================================================================
+// ITEM METADATA HELPERS (DUAL-PERSISTENCE FOR CLOUD SYNC)
+// ============================================================================
+interface ItemMetaEntry {
+  idx: number;
+  product_name?: string;
+  description?: string;
+  item_type?: 'product' | 'steel';
+  steel_profile_type?: string;
+  steel_size?: string;
+  steel_thickness?: string;
+  length_meters?: number;
+  weight_per_meter?: number;
+  weight_kg?: number;
+  unit_weight_kg?: number;
+}
+
+function extractItemMetadata(rawNotes: string | null | undefined): { notes: string; metadata: ItemMetaEntry[] } {
+  if (!rawNotes) return { notes: '', metadata: [] };
+  const pattern = /<!--__ITEM_META__([\s\S]*?)__-->/;
+  const match = rawNotes.match(pattern);
+  if (!match || !match[1]) {
+    return { notes: rawNotes.trim(), metadata: [] };
+  }
+  try {
+    const parsed = JSON.parse(match[1]) as ItemMetaEntry[];
+    const cleanedNotes = rawNotes.replace(pattern, '').trim();
+    return { notes: cleanedNotes, metadata: Array.isArray(parsed) ? parsed : [] };
+  } catch {
+    return { notes: rawNotes.replace(pattern, '').trim(), metadata: [] };
+  }
+}
+
+function embedItemMetadata(rawNotes: string | null | undefined, items: QuotationItem[]): string {
+  const cleanedNotes = (rawNotes || '').replace(/<!--__ITEM_META__[\s\S]*?__-->/g, '').trim();
+  const meta: ItemMetaEntry[] = items.map((item, idx) => ({
+    idx,
+    product_name: item.product_name,
+    description: item.description || '',
+    item_type: item.item_type,
+    steel_profile_type: item.steel_profile_type,
+    steel_size: item.steel_size,
+    steel_thickness: item.steel_thickness,
+    length_meters: item.length_meters,
+    weight_per_meter: item.weight_per_meter,
+    weight_kg: item.weight_kg,
+    unit_weight_kg: item.unit_weight_kg,
+  }));
+  const metaTag = `<!--__ITEM_META__${JSON.stringify(meta)}__-->`;
+  return cleanedNotes ? `${cleanedNotes}\n\n${metaTag}` : metaTag;
+}
+
+// ============================================================================
 // QUOTATIONS API
 // ============================================================================
 export async function getQuotations(): Promise<Quotation[]> {
@@ -520,25 +572,39 @@ export async function getQuotations(): Promise<Quotation[]> {
           const dbItems = items ? items.filter((item) => item.quotation_id === q.id) : [];
           const localMatch = localList.find((lq) => lq.id === q.id || lq.quotation_number === q.quotation_number);
           
-          // Merge db items with local match items to ensure description & steel specs are never lost
+          const { notes: cleanNotes, metadata: metaList } = extractItemMetadata(q.notes);
+
+          // Merge db items with metadata and local match items to ensure description & steel specs are never lost
           const finalItems = dbItems.length > 0
             ? dbItems.map((dbItem, idx) => {
                 const localItem = localMatch?.items?.[idx] || localMatch?.items?.find((li) => li.product_name === dbItem.product_name);
-                const desc = (dbItem.description !== undefined && dbItem.description !== null) 
-                  ? dbItem.description 
-                  : (localItem?.description || '');
+                const metaItem = metaList[idx] || metaList.find((m) => m.product_name === dbItem.product_name);
+
+                // Priority: 1. DB column value, 2. metadata from notes, 3. localItem, 4. empty string
+                let desc = '';
+                if (dbItem.description && String(dbItem.description).trim().length > 0) {
+                  desc = dbItem.description;
+                } else if (metaItem?.description && String(metaItem.description).trim().length > 0) {
+                  desc = metaItem.description;
+                } else if (localItem?.description && String(localItem.description).trim().length > 0) {
+                  desc = localItem.description;
+                }
+
+                const itemType = metaItem?.item_type || localItem?.item_type || dbItem.item_type || 
+                  (dbItem.category === 'Pipe' || dbItem.product_name?.startsWith('SHS') || dbItem.product_name?.startsWith('RHS') || dbItem.product_name?.startsWith('CHS') || dbItem.product_name?.startsWith('C Channel') || dbItem.product_name?.startsWith('Equal Angle') ? 'steel' : 'product');
+
                 return {
                   ...localItem,
                   ...dbItem,
                   description: desc,
-                  item_type: localItem?.item_type || dbItem.item_type || (dbItem.category === 'Pipe' || dbItem.product_name?.startsWith('SHS') || dbItem.product_name?.startsWith('RHS') || dbItem.product_name?.startsWith('CHS') || dbItem.product_name?.startsWith('C Channel') || dbItem.product_name?.startsWith('Equal Angle') ? 'steel' : 'product'),
-                  length_meters: dbItem.length_meters || localItem?.length_meters,
-                  steel_profile_type: dbItem.steel_profile_type || localItem?.steel_profile_type,
-                  steel_size: dbItem.steel_size || localItem?.steel_size,
-                  steel_thickness: dbItem.steel_thickness || localItem?.steel_thickness,
-                  weight_per_meter: dbItem.weight_per_meter || localItem?.weight_per_meter,
-                  weight_kg: dbItem.weight_kg || localItem?.weight_kg,
-                  unit_weight_kg: dbItem.unit_weight_kg || localItem?.unit_weight_kg,
+                  item_type: itemType,
+                  length_meters: dbItem.length_meters || metaItem?.length_meters || localItem?.length_meters,
+                  steel_profile_type: dbItem.steel_profile_type || metaItem?.steel_profile_type || localItem?.steel_profile_type,
+                  steel_size: dbItem.steel_size || metaItem?.steel_size || localItem?.steel_size,
+                  steel_thickness: dbItem.steel_thickness || metaItem?.steel_thickness || localItem?.steel_thickness,
+                  weight_per_meter: dbItem.weight_per_meter || metaItem?.weight_per_meter || localItem?.weight_per_meter,
+                  weight_kg: dbItem.weight_kg || metaItem?.weight_kg || localItem?.weight_kg,
+                  unit_weight_kg: dbItem.unit_weight_kg || metaItem?.unit_weight_kg || localItem?.unit_weight_kg,
                 };
               })
             : (localMatch?.items || []);
@@ -574,6 +640,7 @@ export async function getQuotations(): Promise<Quotation[]> {
           return {
             ...localMatch,
             ...q,
+            notes: cleanNotes || localMatch?.notes || '',
             customer_site_location: q.customer_site_location !== undefined && q.customer_site_location !== null ? q.customer_site_location : (localMatch?.customer_site_location || ''),
             tax_rate: typeof q.tax_rate === 'number'
               ? q.tax_rate
@@ -643,24 +710,38 @@ export async function getQuotationById(id: string): Promise<Quotation | null> {
           // Graceful fallback
         }
 
+        const { notes: cleanNotes, metadata: metaList } = extractItemMetadata(quote.notes);
+
         const finalItems = (items && items.length > 0)
           ? items.map((dbItem, idx) => {
               const localItem = localMatch?.items?.[idx] || localMatch?.items?.find((li) => li.product_name === dbItem.product_name);
-              const desc = (dbItem.description !== undefined && dbItem.description !== null) 
-                ? dbItem.description 
-                : (localItem?.description || '');
+              const metaItem = metaList[idx] || metaList.find((m) => m.product_name === dbItem.product_name);
+
+              // Priority: 1. DB column value, 2. metadata from notes, 3. localItem, 4. empty string
+              let desc = '';
+              if (dbItem.description && String(dbItem.description).trim().length > 0) {
+                desc = dbItem.description;
+              } else if (metaItem?.description && String(metaItem.description).trim().length > 0) {
+                desc = metaItem.description;
+              } else if (localItem?.description && String(localItem.description).trim().length > 0) {
+                desc = localItem.description;
+              }
+
+              const itemType = metaItem?.item_type || localItem?.item_type || dbItem.item_type || 
+                (dbItem.category === 'Pipe' || dbItem.product_name?.startsWith('SHS') || dbItem.product_name?.startsWith('RHS') || dbItem.product_name?.startsWith('CHS') || dbItem.product_name?.startsWith('C Channel') || dbItem.product_name?.startsWith('Equal Angle') ? 'steel' : 'product');
+
               return {
                 ...localItem,
                 ...dbItem,
                 description: desc,
-                item_type: localItem?.item_type || dbItem.item_type || (dbItem.category === 'Pipe' || dbItem.product_name?.startsWith('SHS') || dbItem.product_name?.startsWith('RHS') || dbItem.product_name?.startsWith('CHS') || dbItem.product_name?.startsWith('C Channel') || dbItem.product_name?.startsWith('Equal Angle') ? 'steel' : 'product'),
-                length_meters: dbItem.length_meters || localItem?.length_meters,
-                steel_profile_type: dbItem.steel_profile_type || localItem?.steel_profile_type,
-                steel_size: dbItem.steel_size || localItem?.steel_size,
-                steel_thickness: dbItem.steel_thickness || localItem?.steel_thickness,
-                weight_per_meter: dbItem.weight_per_meter || localItem?.weight_per_meter,
-                weight_kg: dbItem.weight_kg || localItem?.weight_kg,
-                unit_weight_kg: dbItem.unit_weight_kg || localItem?.unit_weight_kg,
+                item_type: itemType,
+                length_meters: dbItem.length_meters || metaItem?.length_meters || localItem?.length_meters,
+                steel_profile_type: dbItem.steel_profile_type || metaItem?.steel_profile_type || localItem?.steel_profile_type,
+                steel_size: dbItem.steel_size || metaItem?.steel_size || localItem?.steel_size,
+                steel_thickness: dbItem.steel_thickness || metaItem?.steel_thickness || localItem?.steel_thickness,
+                weight_per_meter: dbItem.weight_per_meter || metaItem?.weight_per_meter || localItem?.weight_per_meter,
+                weight_kg: dbItem.weight_kg || metaItem?.weight_kg || localItem?.weight_kg,
+                unit_weight_kg: dbItem.unit_weight_kg || metaItem?.unit_weight_kg || localItem?.unit_weight_kg,
               };
             })
           : (localMatch?.items || []);
@@ -694,6 +775,7 @@ export async function getQuotationById(id: string): Promise<Quotation | null> {
         const finalQuote: Quotation = {
           ...localMatch,
           ...quote,
+          notes: cleanNotes || localMatch?.notes || '',
           customer_site_location: quote.customer_site_location !== undefined && quote.customer_site_location !== null ? quote.customer_site_location : (localMatch?.customer_site_location || ''),
           tax_rate: typeof quote.tax_rate === 'number'
             ? quote.tax_rate
@@ -761,6 +843,7 @@ export async function createQuotation(
     ...item,
     id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `qi-${Date.now()}-${idx}`,
     quotation_id: newId,
+    description: item.description || '',
     sort_order: idx + 1,
   }));
 
@@ -815,8 +898,11 @@ export async function createQuotation(
         ...headerOnly
       } = newQuotation;
 
+      const notesWithMetadata = embedItemMetadata(headerOnly.notes, formattedItems);
+
       const headerForSupabase: Record<string, any> = {
         ...headerOnly,
+        notes: notesWithMetadata,
         id: isValidUUID(headerOnly.id) ? headerOnly.id : undefined,
         customer_id: isValidUUID(headerOnly.customer_id) ? headerOnly.customer_id : null,
         customer_site_location: headerOnly.customer_site_location ?? '',
@@ -863,11 +949,15 @@ export async function createQuotation(
           sort_order: idx + 1,
         }));
 
+        console.info('[Supabase] Inserting quotation_items with description payload:', itemsForSupabase);
         const { error: itemsErr } = await supabase.from('quotation_items').insert(itemsForSupabase);
         if (itemsErr) {
-          console.warn('Supabase items insert with description warning, retrying without description column:', itemsErr);
+          console.warn('[Supabase] quotation_items insert warning (run migration if column description is missing):', itemsErr);
           const fallbackItems = itemsForSupabase.map(({ description: _, ...rest }) => rest);
-          await supabase.from('quotation_items').insert(fallbackItems);
+          const { error: fbErr } = await supabase.from('quotation_items').insert(fallbackItems);
+          if (fbErr) {
+            console.error('[Supabase] quotation_items fallback insert failed:', fbErr);
+          }
         }
 
         // 3. Insert advances to quotation_advances table
@@ -919,6 +1009,7 @@ export async function updateQuotation(
       ...item,
       id: item.id || (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `qi-${Date.now()}-${idx}`),
       quotation_id: id,
+      description: item.description || '',
       sort_order: idx + 1,
     }));
   }
@@ -991,8 +1082,11 @@ export async function updateQuotation(
         ...headerOnly
       } = updated;
 
+      const notesWithMetadata = embedItemMetadata(headerOnly.notes, formattedItems);
+
       const headerForSupabase: Record<string, any> = {
         ...headerOnly,
+        notes: notesWithMetadata,
         customer_id: isValidUUID(headerOnly.customer_id) ? headerOnly.customer_id : null,
         customer_site_location: headerOnly.customer_site_location ?? '',
         advance_paid: totalAdvance,
@@ -1040,10 +1134,15 @@ export async function updateQuotation(
           line_total: Number(item.line_total) || 0,
           sort_order: idx + 1,
         }));
+        console.info('[Supabase] Syncing quotation_items with description payload:', itemsForSupabase);
         const { error: insErr } = await supabase.from('quotation_items').insert(itemsForSupabase);
         if (insErr) {
+          console.warn('[Supabase] quotation_items sync warning (run migration if column description is missing):', insErr);
           const fallbackItems = itemsForSupabase.map(({ description: _, ...rest }) => rest);
-          await supabase.from('quotation_items').insert(fallbackItems);
+          const { error: fbErr } = await supabase.from('quotation_items').insert(fallbackItems);
+          if (fbErr) {
+            console.error('[Supabase] quotation_items sync fallback error:', fbErr);
+          }
         }
       }
 
