@@ -1,8 +1,17 @@
 'use client';
 
 import React from 'react';
-import { CompanySettings, Quotation } from '@/lib/types';
-import { formatCurrency, formatDate, numberToWords, calculateQuotationTotalWeight, calculatePaymentStatus, calculateBalanceRemaining } from '@/lib/utils';
+import { CompanySettings, Quotation, QuotationAdvance, QuotationItem } from '@/lib/types';
+import {
+  formatCurrency,
+  formatDate,
+  numberToWords,
+  calculateQuotationTotalWeight,
+  calculatePaymentStatus,
+  calculateBalanceRemaining,
+  calculateTotalAdvances,
+  sortAdvancesByDate,
+} from '@/lib/utils';
 import { StatusBadge, PaymentStatusBadge } from './StatusBadge';
 import { Building2, MapPin, Phone, Mail, FileCheck2, Scale } from 'lucide-react';
 
@@ -16,13 +25,16 @@ export const QuotationPrintView = React.forwardRef<HTMLDivElement, QuotationPrin
     const totalWeightKg =
       quotation.total_weight_kg || calculateQuotationTotalWeight(quotation.items || []);
 
-    const advancePaid = Number(quotation.advance_paid || 0);
+    const sortedAdvances: QuotationAdvance[] = sortAdvancesByDate(quotation.advances || []);
+    const totalAdvance = sortedAdvances.length > 0 
+      ? calculateTotalAdvances(sortedAdvances) 
+      : Number(quotation.advance_paid || 0);
     const balanceRemaining =
       quotation.balance_amount !== undefined
         ? quotation.balance_amount
-        : calculateBalanceRemaining(quotation.grand_total, advancePaid);
+        : calculateBalanceRemaining(quotation.grand_total, totalAdvance);
     const paymentStatus =
-      quotation.payment_status || calculatePaymentStatus(quotation.grand_total, advancePaid);
+      quotation.payment_status || calculatePaymentStatus(quotation.grand_total, totalAdvance);
 
     return (
       <div
@@ -144,7 +156,7 @@ export const QuotationPrintView = React.forwardRef<HTMLDivElement, QuotationPrin
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200">
-              {(quotation.items || []).map((item, idx) => {
+              {(quotation.items || []).map((item: QuotationItem, idx: number) => {
                 const isSteel = item.item_type === 'steel';
 
                 if (isSteel) {
@@ -316,14 +328,39 @@ export const QuotationPrintView = React.forwardRef<HTMLDivElement, QuotationPrin
 
             {/* Advance Received & Balance Due */}
             <div className="border-t border-slate-200 pt-1.5 space-y-1">
-              {advancePaid > 0 && (
+              {sortedAdvances.length > 0 ? (
+                <>
+                  <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500 pt-0.5">
+                    Advance Payments:
+                  </div>
+                  {sortedAdvances.map((adv: QuotationAdvance, idx: number) => (
+                    <div key={idx} className="flex justify-between text-slate-700 text-[10.5px]">
+                      <span>
+                        Advance {idx + 1} ({formatDate(adv.payment_date || '')}):
+                      </span>
+                      <span className="font-mono font-semibold text-emerald-700">
+                        - {formatCurrency(adv.amount)}
+                      </span>
+                    </div>
+                  ))}
+                  {sortedAdvances.length > 1 && (
+                    <div className="flex justify-between text-slate-800 font-bold text-[11px] pt-0.5 border-t border-slate-200/60">
+                      <span>Total Advance Paid:</span>
+                      <span className="font-mono text-emerald-800">
+                        - {formatCurrency(totalAdvance)}
+                      </span>
+                    </div>
+                  )}
+                </>
+              ) : totalAdvance > 0 ? (
                 <div className="flex justify-between text-slate-700 font-medium">
                   <span>Advance Received:</span>
                   <span className="font-mono font-semibold text-emerald-700">
-                    - {formatCurrency(advancePaid)}
+                    - {formatCurrency(totalAdvance)}
                   </span>
                 </div>
-              )}
+              ) : null}
+
               <div className="flex justify-between items-baseline font-bold text-xs pt-0.5">
                 <span className="text-slate-900">Payment Status:</span>
                 <span className="font-semibold text-[11px] text-slate-800">

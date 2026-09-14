@@ -293,10 +293,17 @@ export default function QuotationsPage() {
                         size="sm"
                       />
                       {Number(q.advance_paid) > 0 && (
-                        <div className="text-[10px] text-slate-500 font-mono">
-                          Paid: {formatCurrency(q.advance_paid || 0)}
+                        <div className="text-[10px] text-slate-500 font-mono leading-tight">
+                          <div>
+                            Paid: {formatCurrency(q.advance_paid || 0)}
+                            {q.advances && q.advances.length > 1 && (
+                              <span className="text-[9.5px] text-slate-400 block font-sans">
+                                ({q.advances.length} payments recorded)
+                              </span>
+                            )}
+                          </div>
                           {(q.balance_amount !== undefined ? q.balance_amount : calculateBalanceRemaining(q.grand_total, q.advance_paid || 0)) > 0 && (
-                            <span className="block text-amber-700 font-semibold">
+                            <span className="block text-amber-700 font-semibold mt-0.5">
                               Bal: {formatCurrency(q.balance_amount !== undefined ? q.balance_amount : calculateBalanceRemaining(q.grand_total, q.advance_paid || 0))}
                             </span>
                           )}

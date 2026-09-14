@@ -258,6 +258,32 @@ export function calculateQuotationTotalWeight(
 }
 
 /**
+ * Calculate total advance amount from multiple advance records
+ */
+export function calculateTotalAdvances(
+  advances?: Array<{ amount: number; payment_date?: string }>
+): number {
+  if (!advances || advances.length === 0) return 0;
+  const sum = advances.reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0);
+  return Number(sum.toFixed(2));
+}
+
+/**
+ * Sort advance payment records chronologically by payment date
+ */
+export function sortAdvancesByDate<T extends { payment_date?: string; created_at?: string }>(
+  advances?: T[]
+): T[] {
+  if (!advances) return [];
+  return [...advances].sort((a, b) => {
+    const dateA = a.payment_date || '';
+    const dateB = b.payment_date || '';
+    if (dateA !== dateB) return dateA.localeCompare(dateB);
+    return (a.created_at || '').localeCompare(b.created_at || '');
+  });
+}
+
+/**
  * Determine payment status from grand total and advance paid
  */
 export function calculatePaymentStatus(

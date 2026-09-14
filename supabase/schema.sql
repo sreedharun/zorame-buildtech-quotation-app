@@ -160,13 +160,29 @@ ALTER TABLE quotation_items ADD COLUMN IF NOT EXISTS description TEXT;
 CREATE INDEX IF NOT EXISTS idx_quotation_items_quotation_id ON quotation_items(quotation_id);
 
 -- ==============================================================================
--- 8. ROW LEVEL SECURITY (RLS) POLICIES (Public/Anon access for Office Staff)
+-- 8. TABLE: quotation_advances (Multiple Advance Payments per Quotation)
+-- ==============================================================================
+CREATE TABLE IF NOT EXISTS quotation_advances (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    quotation_id UUID NOT NULL REFERENCES quotations(id) ON DELETE CASCADE,
+    amount NUMERIC(12,2) NOT NULL DEFAULT 0.00,
+    payment_date DATE NOT NULL DEFAULT CURRENT_DATE,
+    notes TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_quotation_advances_quotation_id ON quotation_advances(quotation_id);
+CREATE INDEX IF NOT EXISTS idx_quotation_advances_payment_date ON quotation_advances(payment_date);
+
+-- ==============================================================================
+-- 9. ROW LEVEL SECURITY (RLS) POLICIES (Public/Anon access for Office Staff)
 -- ==============================================================================
 ALTER TABLE company_settings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE products ENABLE ROW LEVEL SECURITY;
 ALTER TABLE customers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE quotations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE quotation_items ENABLE ROW LEVEL SECURITY;
+ALTER TABLE quotation_advances ENABLE ROW LEVEL SECURITY;
 
 -- Allow anon read/write for office staff internal tool
 CREATE POLICY "Allow public all access on company_settings" ON company_settings FOR ALL USING (true) WITH CHECK (true);
@@ -174,9 +190,10 @@ CREATE POLICY "Allow public all access on products" ON products FOR ALL USING (t
 CREATE POLICY "Allow public all access on customers" ON customers FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow public all access on quotations" ON quotations FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow public all access on quotation_items" ON quotation_items FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow public all access on quotation_advances" ON quotation_advances FOR ALL USING (true) WITH CHECK (true);
 
 -- ==============================================================================
--- 9. INITIAL SEED DATA
+-- 10. INITIAL SEED DATA
 -- ==============================================================================
 INSERT INTO company_settings (id, company_name, tagline, phone, email, address, gst_tax_id, quote_prefix, default_validity_days)
 VALUES (

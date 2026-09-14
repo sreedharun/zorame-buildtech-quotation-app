@@ -4,8 +4,15 @@ import {
   Customer,
   Product,
   Quotation,
+  QuotationAdvance,
   QuotationItem,
 } from './types';
+import {
+  calculateTotalAdvances,
+  sortAdvancesByDate,
+  calculatePaymentStatus,
+  calculateBalanceRemaining,
+} from './utils';
 import {
   DEFAULT_COMPANY_SETTINGS,
   INITIAL_CUSTOMERS,
@@ -495,6 +502,20 @@ export async function getQuotations(): Promise<Quotation[]> {
           .select('*')
           .order('sort_order', { ascending: true });
 
+        // Fetch multiple advance payments if quotation_advances table exists
+        let dbAdvances: any[] = [];
+        try {
+          const { data: advData } = await supabase
+            .from('quotation_advances')
+            .select('*')
+            .order('payment_date', { ascending: true });
+          if (advData) {
+            dbAdvances = advData;
+          }
+        } catch {
+          // Graceful fallback if table is not yet migrated
+        }
+
         const supabaseQuotes = quotes.map((q) => {
           const dbItems = items ? items.filter((item) => item.quotation_id === q.id) : [];
           const localMatch = localList.find((lq) => lq.id === q.id || lq.quotation_number === q.quotation_number);
@@ -503,11 +524,14 @@ export async function getQuotations(): Promise<Quotation[]> {
           const finalItems = dbItems.length > 0
             ? dbItems.map((dbItem, idx) => {
                 const localItem = localMatch?.items?.[idx] || localMatch?.items?.find((li) => li.product_name === dbItem.product_name);
+                const desc = (dbItem.description !== undefined && dbItem.description !== null) 
+                  ? dbItem.description 
+                  : (localItem?.description || '');
                 return {
                   ...localItem,
                   ...dbItem,
-                  description: dbItem.description || localItem?.description || '',
-                  item_type: localItem?.item_type || dbItem.item_type || 'product',
+                  description: desc,
+                  item_type: localItem?.item_type || dbItem.item_type || (dbItem.category === 'Pipe' || dbItem.product_name?.startsWith('SHS') || dbItem.product_name?.startsWith('RHS') || dbItem.product_name?.startsWith('CHS') || dbItem.product_name?.startsWith('C Channel') || dbItem.product_name?.startsWith('Equal Angle') ? 'steel' : 'product'),
                   length_meters: dbItem.length_meters || localItem?.length_meters,
                   steel_profile_type: dbItem.steel_profile_type || localItem?.steel_profile_type,
                   steel_size: dbItem.steel_size || localItem?.steel_size,
@@ -519,10 +543,33 @@ export async function getQuotations(): Promise<Quotation[]> {
               })
             : (localMatch?.items || []);
 
-          const advPaid = Number(q.advance_paid !== undefined && q.advance_paid !== null ? q.advance_paid : (localMatch?.advance_paid ?? 0));
+          // Match advances for this quotation
+          const quoteDbAdvances = dbAdvances.filter((a) => a.quotation_id === q.id);
+          let finalAdvances: QuotationAdvance[] = [];
+          if (quoteDbAdvances.length > 0) {
+            finalAdvances = quoteDbAdvances.map((a) => ({
+              id: a.id,
+              quotation_id: a.quotation_id,
+              amount: Number(a.amount) || 0,
+              payment_date: a.payment_date || q.quotation_date,
+              notes: a.notes || undefined,
+              created_at: a.created_at,
+            }));
+          } else if (localMatch?.advances && localMatch.advances.length > 0) {
+            finalAdvances = localMatch.advances;
+          } else if (Number(q.advance_paid) > 0 || Number(localMatch?.advance_paid) > 0) {
+            const advAmount = Number(q.advance_paid || localMatch?.advance_paid || 0);
+            finalAdvances = [{
+              amount: advAmount,
+              payment_date: q.quotation_date,
+            }];
+          }
+
+          finalAdvances = sortAdvancesByDate(finalAdvances);
+          const totalAdvPaid = calculateTotalAdvances(finalAdvances);
           const grandTot = Number(q.grand_total ?? localMatch?.grand_total ?? 0);
-          const payStatus = (q.payment_status || localMatch?.payment_status || (advPaid > 0 ? (advPaid >= grandTot ? 'Fully Paid' : 'Partially Paid') : 'Unpaid'));
-          const balAmt = Number(Math.max(0, grandTot - advPaid).toFixed(2));
+          const payStatus = (q.payment_status || localMatch?.payment_status || calculatePaymentStatus(grandTot, totalAdvPaid));
+          const balAmt = calculateBalanceRemaining(grandTot, totalAdvPaid);
 
           return {
             ...localMatch,
@@ -533,9 +580,10 @@ export async function getQuotations(): Promise<Quotation[]> {
               : (q.subtotal > 0 && typeof q.tax_amount === 'number'
                   ? Math.round((q.tax_amount / q.subtotal) * 100)
                   : (localMatch?.tax_rate ?? 18)),
-            advance_paid: advPaid,
+            advance_paid: totalAdvPaid,
             balance_amount: balAmt,
             payment_status: payStatus,
+            advances: finalAdvances,
             items: finalItems,
           };
         }) as Quotation[];
@@ -580,14 +628,32 @@ export async function getQuotationById(id: string): Promise<Quotation | null> {
           .eq('quotation_id', id)
           .order('sort_order', { ascending: true });
 
+        // Fetch advances for this specific quotation
+        let dbAdvances: any[] = [];
+        try {
+          const { data: advData } = await supabase
+            .from('quotation_advances')
+            .select('*')
+            .eq('quotation_id', id)
+            .order('payment_date', { ascending: true });
+          if (advData) {
+            dbAdvances = advData;
+          }
+        } catch {
+          // Graceful fallback
+        }
+
         const finalItems = (items && items.length > 0)
           ? items.map((dbItem, idx) => {
               const localItem = localMatch?.items?.[idx] || localMatch?.items?.find((li) => li.product_name === dbItem.product_name);
+              const desc = (dbItem.description !== undefined && dbItem.description !== null) 
+                ? dbItem.description 
+                : (localItem?.description || '');
               return {
                 ...localItem,
                 ...dbItem,
-                description: dbItem.description || localItem?.description || '',
-                item_type: localItem?.item_type || dbItem.item_type || 'product',
+                description: desc,
+                item_type: localItem?.item_type || dbItem.item_type || (dbItem.category === 'Pipe' || dbItem.product_name?.startsWith('SHS') || dbItem.product_name?.startsWith('RHS') || dbItem.product_name?.startsWith('CHS') || dbItem.product_name?.startsWith('C Channel') || dbItem.product_name?.startsWith('Equal Angle') ? 'steel' : 'product'),
                 length_meters: dbItem.length_meters || localItem?.length_meters,
                 steel_profile_type: dbItem.steel_profile_type || localItem?.steel_profile_type,
                 steel_size: dbItem.steel_size || localItem?.steel_size,
@@ -599,10 +665,31 @@ export async function getQuotationById(id: string): Promise<Quotation | null> {
             })
           : (localMatch?.items || []);
 
-        const advPaid = Number(quote.advance_paid !== undefined && quote.advance_paid !== null ? quote.advance_paid : (localMatch?.advance_paid ?? 0));
+        let finalAdvances: QuotationAdvance[] = [];
+        if (dbAdvances.length > 0) {
+          finalAdvances = dbAdvances.map((a) => ({
+            id: a.id,
+            quotation_id: a.quotation_id,
+            amount: Number(a.amount) || 0,
+            payment_date: a.payment_date || quote.quotation_date,
+            notes: a.notes || undefined,
+            created_at: a.created_at,
+          }));
+        } else if (localMatch?.advances && localMatch.advances.length > 0) {
+          finalAdvances = localMatch.advances;
+        } else if (Number(quote.advance_paid) > 0 || Number(localMatch?.advance_paid) > 0) {
+          const advAmount = Number(quote.advance_paid || localMatch?.advance_paid || 0);
+          finalAdvances = [{
+            amount: advAmount,
+            payment_date: quote.quotation_date,
+          }];
+        }
+
+        finalAdvances = sortAdvancesByDate(finalAdvances);
+        const totalAdvPaid = calculateTotalAdvances(finalAdvances);
         const grandTot = Number(quote.grand_total ?? localMatch?.grand_total ?? 0);
-        const payStatus = (quote.payment_status || localMatch?.payment_status || (advPaid > 0 ? (advPaid >= grandTot ? 'Fully Paid' : 'Partially Paid') : 'Unpaid'));
-        const balAmt = Number(Math.max(0, grandTot - advPaid).toFixed(2));
+        const payStatus = (quote.payment_status || localMatch?.payment_status || calculatePaymentStatus(grandTot, totalAdvPaid));
+        const balAmt = calculateBalanceRemaining(grandTot, totalAdvPaid);
 
         const finalQuote: Quotation = {
           ...localMatch,
@@ -613,9 +700,10 @@ export async function getQuotationById(id: string): Promise<Quotation | null> {
             : (quote.subtotal > 0 && typeof quote.tax_amount === 'number'
                 ? Math.round((quote.tax_amount / quote.subtotal) * 100)
                 : (localMatch?.tax_rate ?? 18)),
-          advance_paid: advPaid,
+          advance_paid: totalAdvPaid,
           balance_amount: balAmt,
           payment_status: payStatus,
+          advances: finalAdvances,
           items: finalItems,
         };
 
@@ -663,7 +751,8 @@ export async function generateNextQuotationNumber(): Promise<string> {
 
 export async function createQuotation(
   quotationData: Omit<Quotation, 'id'>,
-  items: QuotationItem[]
+  items: QuotationItem[],
+  advances?: QuotationAdvance[]
 ): Promise<Quotation> {
   const newId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : 'quote-' + Date.now();
   const timestamp = new Date().toISOString();
@@ -675,9 +764,30 @@ export async function createQuotation(
     sort_order: idx + 1,
   }));
 
+  const rawAdvances = advances || quotationData.advances || [];
+  const formattedAdvances: QuotationAdvance[] = sortAdvancesByDate(
+    rawAdvances.map((adv, idx) => ({
+      ...adv,
+      id: adv.id || (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `adv-${Date.now()}-${idx}`),
+      quotation_id: newId,
+      amount: Number(adv.amount) || 0,
+      payment_date: adv.payment_date || timestamp.split('T')[0],
+      created_at: adv.created_at || timestamp,
+    }))
+  );
+
+  const totalAdvance = calculateTotalAdvances(formattedAdvances);
+  const grandTotal = Number(quotationData.grand_total) || 0;
+  const balanceRemaining = calculateBalanceRemaining(grandTotal, totalAdvance);
+  const paymentStatus = calculatePaymentStatus(grandTotal, totalAdvance);
+
   const newQuotation: Quotation = {
     ...quotationData,
     id: newId,
+    advance_paid: totalAdvance,
+    balance_amount: balanceRemaining,
+    payment_status: paymentStatus,
+    advances: formattedAdvances,
     created_at: timestamp,
     updated_at: timestamp,
     items: formattedItems,
@@ -693,6 +803,7 @@ export async function createQuotation(
       // 1. Insert header (strip client-only calculated properties and sanitize UUIDs for DB safety)
       const {
         items: _,
+        advances: __adv,
         total_weight_kg: __,
         total_steel_length_meters: _sl,
         total_steel_weight_kg: _sw,
@@ -709,8 +820,8 @@ export async function createQuotation(
         id: isValidUUID(headerOnly.id) ? headerOnly.id : undefined,
         customer_id: isValidUUID(headerOnly.customer_id) ? headerOnly.customer_id : null,
         customer_site_location: headerOnly.customer_site_location ?? '',
-        advance_paid: Number(headerOnly.advance_paid) || 0,
-        payment_status: headerOnly.payment_status || 'Unpaid',
+        advance_paid: totalAdvance,
+        payment_status: paymentStatus,
       };
 
       let { data: insertedHeader, error: headErr } = await supabase
@@ -735,7 +846,7 @@ export async function createQuotation(
         const realId = insertedHeader.id || newId;
         newQuotation.id = realId;
 
-        // 2. Insert items (sanitize columns for Supabase schema compatibility)
+        // 2. Insert items with description column
         const itemsForSupabase = formattedItems.map((item, idx) => ({
           quotation_id: realId,
           product_id: isValidUUID(item.product_id) ? item.product_id : null,
@@ -758,8 +869,23 @@ export async function createQuotation(
           const fallbackItems = itemsForSupabase.map(({ description: _, ...rest }) => rest);
           await supabase.from('quotation_items').insert(fallbackItems);
         }
+
+        // 3. Insert advances to quotation_advances table
+        if (formattedAdvances.length > 0) {
+          const advancesForSupabase = formattedAdvances.map((adv) => ({
+            quotation_id: realId,
+            amount: Number(adv.amount) || 0,
+            payment_date: adv.payment_date || timestamp.split('T')[0],
+            notes: adv.notes || null,
+          }));
+          try {
+            await supabase.from('quotation_advances').insert(advancesForSupabase);
+          } catch (advErr) {
+            console.warn('Supabase quotation_advances insert error:', advErr);
+          }
+        }
         
-        // Update local cache with confirmed items
+        // Update local cache with confirmed items & advances
         const updatedLocal = getLocalItem<Quotation[]>(STORAGE_KEYS.QUOTATIONS, []);
         setLocalItem(STORAGE_KEYS.QUOTATIONS, [newQuotation, ...updatedLocal.filter((q) => q.id !== newId && q.id !== realId)]);
         return newQuotation;
@@ -777,7 +903,8 @@ export async function createQuotation(
 export async function updateQuotation(
   id: string,
   quotationData: Partial<Quotation>,
-  items?: QuotationItem[]
+  items?: QuotationItem[],
+  advances?: QuotationAdvance[]
 ): Promise<Quotation> {
   const quotations = await getQuotations();
   const index = quotations.findIndex((q) => q.id === id);
@@ -796,9 +923,43 @@ export async function updateQuotation(
     }));
   }
 
+  let formattedAdvances = existing.advances || [];
+  if (advances !== undefined) {
+    formattedAdvances = sortAdvancesByDate(
+      advances.map((adv, idx) => ({
+        ...adv,
+        id: adv.id || (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `adv-${Date.now()}-${idx}`),
+        quotation_id: id,
+        amount: Number(adv.amount) || 0,
+        payment_date: adv.payment_date || timestamp.split('T')[0],
+        created_at: adv.created_at || timestamp,
+      }))
+    );
+  } else if (quotationData.advances !== undefined) {
+    formattedAdvances = sortAdvancesByDate(
+      quotationData.advances.map((adv, idx) => ({
+        ...adv,
+        id: adv.id || (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `adv-${Date.now()}-${idx}`),
+        quotation_id: id,
+        amount: Number(adv.amount) || 0,
+        payment_date: adv.payment_date || timestamp.split('T')[0],
+        created_at: adv.created_at || timestamp,
+      }))
+    );
+  }
+
+  const totalAdvance = calculateTotalAdvances(formattedAdvances);
+  const grandTotal = Number(quotationData.grand_total ?? existing.grand_total ?? 0);
+  const balanceRemaining = calculateBalanceRemaining(grandTotal, totalAdvance);
+  const paymentStatus = calculatePaymentStatus(grandTotal, totalAdvance);
+
   const updated: Quotation = {
     ...existing,
     ...quotationData,
+    advance_paid: totalAdvance,
+    balance_amount: balanceRemaining,
+    payment_status: paymentStatus,
+    advances: formattedAdvances,
     updated_at: timestamp,
     items: formattedItems,
   };
@@ -818,6 +979,7 @@ export async function updateQuotation(
     try {
       const {
         items: _,
+        advances: __adv,
         total_weight_kg: __,
         total_steel_length_meters: _sl,
         total_steel_weight_kg: _sw,
@@ -833,8 +995,8 @@ export async function updateQuotation(
         ...headerOnly,
         customer_id: isValidUUID(headerOnly.customer_id) ? headerOnly.customer_id : null,
         customer_site_location: headerOnly.customer_site_location ?? '',
-        advance_paid: Number(headerOnly.advance_paid) || 0,
-        payment_status: headerOnly.payment_status || 'Unpaid',
+        advance_paid: totalAdvance,
+        payment_status: paymentStatus,
       };
 
       let { data: updatedHeader, error: updateErr } = await supabase
@@ -860,6 +1022,7 @@ export async function updateQuotation(
         console.error('Supabase quote update error:', updateErr);
       }
 
+      // Sync line items
       if (items) {
         await supabase.from('quotation_items').delete().eq('quotation_id', id);
         const itemsForSupabase = formattedItems.map((item, idx) => ({
@@ -883,6 +1046,25 @@ export async function updateQuotation(
           await supabase.from('quotation_items').insert(fallbackItems);
         }
       }
+
+      // Sync advances to quotation_advances
+      if (advances !== undefined || quotationData.advances !== undefined) {
+        try {
+          await supabase.from('quotation_advances').delete().eq('quotation_id', id);
+          if (formattedAdvances.length > 0) {
+            const advancesForSupabase = formattedAdvances.map((adv) => ({
+              quotation_id: id,
+              amount: Number(adv.amount) || 0,
+              payment_date: adv.payment_date || timestamp.split('T')[0],
+              notes: adv.notes || null,
+            }));
+            await supabase.from('quotation_advances').insert(advancesForSupabase);
+          }
+        } catch (advErr) {
+          console.warn('Supabase quotation_advances sync error:', advErr);
+        }
+      }
+
       return updated;
     } catch (e) {
       console.error('Supabase quote update exception:', e);
@@ -904,10 +1086,14 @@ export async function deleteQuotation(id: string): Promise<boolean> {
   );
   setLocalItem(STORAGE_KEYS.QUOTATIONS, updatedLocal);
 
-  // 3. Delete from Supabase (delete children items first, then header)
+  // 3. Delete from Supabase (delete child items and advances first, then header)
   if (isSupabaseConfigured && supabase) {
     try {
-      // Delete child line items first to prevent FK constraint issues
+      try {
+        await supabase.from('quotation_advances').delete().eq('quotation_id', id);
+      } catch {
+        // ignore if table doesn't exist
+      }
       await supabase.from('quotation_items').delete().eq('quotation_id', id);
       await supabase.from('quotations').delete().eq('id', id);
 
@@ -938,7 +1124,7 @@ export async function duplicateQuotation(id: string): Promise<Quotation> {
   validUntilDate.setDate(validUntilDate.getDate() + (settings.default_validity_days || 15));
   const validUntil = validUntilDate.toISOString().split('T')[0];
 
-  const { id: _, created_at: __, updated_at: ___, items, quotation_number: ____, ...rest } = original;
+  const { id: _, created_at: __, updated_at: ___, items, quotation_number: ____, advances: _____, ...rest } = original;
 
   const duplicatedData: Omit<Quotation, 'id'> = {
     ...rest,
@@ -946,6 +1132,10 @@ export async function duplicateQuotation(id: string): Promise<Quotation> {
     quotation_date: today,
     valid_until: validUntil,
     status: 'Draft',
+    advance_paid: 0,
+    balance_amount: rest.grand_total,
+    payment_status: 'Unpaid',
+    advances: [],
     notes: `Duplicated from ${original.quotation_number}. ${original.notes || ''}`.trim(),
   };
 
@@ -954,5 +1144,5 @@ export async function duplicateQuotation(id: string): Promise<Quotation> {
     return itemProps as QuotationItem;
   });
 
-  return createQuotation(duplicatedData, clonedItems);
+  return createQuotation(duplicatedData, clonedItems, []);
 }

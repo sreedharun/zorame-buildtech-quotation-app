@@ -141,6 +141,7 @@ CREATE TABLE IF NOT EXISTS quotations (
 );
 
 -- Migrations for existing databases:
+ALTER TABLE quotation_items ADD COLUMN IF NOT EXISTS description TEXT;
 ALTER TABLE quotations ADD COLUMN IF NOT EXISTS tax_rate NUMERIC(5,2) DEFAULT 18.00;
 ALTER TABLE quotations ADD COLUMN IF NOT EXISTS advance_paid NUMERIC(12,2) DEFAULT 0.00;
 ALTER TABLE quotations ADD COLUMN IF NOT EXISTS payment_status TEXT DEFAULT 'Unpaid';
@@ -150,6 +151,7 @@ CREATE TABLE IF NOT EXISTS quotation_items (
     quotation_id UUID NOT NULL REFERENCES quotations(id) ON DELETE CASCADE,
     product_id UUID REFERENCES products(id) ON DELETE SET NULL,
     product_name TEXT NOT NULL,
+    description TEXT,
     category TEXT,
     unit TEXT NOT NULL,
     unit_price NUMERIC(12,2) NOT NULL DEFAULT 0.00,
@@ -161,17 +163,28 @@ CREATE TABLE IF NOT EXISTS quotation_items (
     sort_order INTEGER NOT NULL DEFAULT 0
 );
 
+CREATE TABLE IF NOT EXISTS quotation_advances (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    quotation_id UUID NOT NULL REFERENCES quotations(id) ON DELETE CASCADE,
+    amount NUMERIC(12,2) NOT NULL DEFAULT 0.00,
+    payment_date DATE NOT NULL DEFAULT CURRENT_DATE,
+    notes TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 ALTER TABLE company_settings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE products ENABLE ROW LEVEL SECURITY;
 ALTER TABLE customers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE quotations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE quotation_items ENABLE ROW LEVEL SECURITY;
+ALTER TABLE quotation_advances ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "Allow public all access on company_settings" ON company_settings FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow public all access on products" ON products FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow public all access on customers" ON customers FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow public all access on quotations" ON quotations FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow public all access on quotation_items" ON quotation_items FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow public all access on quotation_advances" ON quotation_advances FOR ALL USING (true) WITH CHECK (true);
 `;
 
     navigator.clipboard.writeText(sqlContent);

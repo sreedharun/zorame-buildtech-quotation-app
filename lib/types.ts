@@ -47,6 +47,15 @@ export type QuotationStatus = 'Draft' | 'Sent' | 'Approved' | 'Rejected';
 export type PaymentStatus = 'Unpaid' | 'Partially Paid' | 'Fully Paid';
 export type DiscountType = 'flat' | 'percent';
 
+export interface QuotationAdvance {
+  id?: string;
+  quotation_id?: string;
+  amount: number;
+  payment_date: string; // YYYY-MM-DD
+  notes?: string;
+  created_at?: string;
+}
+
 export interface QuotationItem {
   id?: string;
   quotation_id?: string;
@@ -94,9 +103,10 @@ export interface Quotation {
   grand_total: number;
 
   // Payment Tracking Fields
-  advance_paid?: number;
-  balance_amount?: number;
+  advance_paid?: number; // Total Advance Paid (sum of all advances)
+  balance_amount?: number; // Grand Total - advance_paid
   payment_status?: PaymentStatus;
+  advances?: QuotationAdvance[]; // Multiple advance payment records with dates
 
   // Steel weight & cost calculation fields
   total_steel_length_meters?: number;
